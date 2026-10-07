@@ -31,6 +31,7 @@ import occasions as OCC
 import partners
 import postcards
 import sources
+import voice_flow
 
 try:
     import ai_assistant as AI
@@ -1395,6 +1396,10 @@ def fulfill_order(chat_id, order_id, charge_id, email):
         notify_admin_paid(order)
         return
 
+    if order.get("product") == voice_flow.VL.ADDON_KEY:  # доплата за озвучку уже выданного письма
+        voice_flow.fulfill_addon(chat_id, order)
+        return
+
     if order.get("product") == OCC.PACK["key"]:
         profile = get_client(chat_id) or {}
         profile["credits"] = profile.get("credits", 0) + OCC.PACK["credits"]
@@ -1706,6 +1711,7 @@ def occ_catalog_markup():
         f"{OCC.PACK['icon']} {OCC.PACK['title']} · {OCC.PACK['price']}₽", callback_data="occ:pack"))
     kb.add(types.InlineKeyboardButton(
         f"{OCC.DOC['icon']} {OCC.DOC['title']} · {OCC.DOC['price']}₽", callback_data="occ:doc"))
+    voice_flow.catalog_button(kb)  # «Голосовое письмо» — только если настроен ElevenLabs
     kb.add(types.InlineKeyboardButton(
         f"👥 Письмо от всех нас · {group_letters.GROUP_PRICE}₽", callback_data="grp:new"))
     kb.add(types.InlineKeyboardButton(
@@ -2111,6 +2117,7 @@ def occ_make_order(chat_id, user, state, status="pending", price=None):
         "status": status,
         "is_gift": True,
         "gift_for": state.get("name"),
+        "voice": bool(state.get("voice")), "voice_gender": state.get("voice_gender"),
         "created_at": now_msk().isoformat(),
         "paid_at": None,
         "delivered_at": None,
@@ -2391,6 +2398,7 @@ def occ_deliver(chat_id, order):
             query=f"card_{occ_gift_code(order)}", allow_user_chats=True, allow_group_chats=True),
     ))
     kb.add(types.InlineKeyboardButton("📤 Отправить ссылкой (WhatsApp, другие чаты)", url=share_url))
+    voice_flow.add_upsell(kb, order)
     kb.add(partners.friend_gift_markup(order["chat_id"]))
     kb.add(types.InlineKeyboardButton("🎀 Ещё одно письмо с открыткой", callback_data="occ:catalog"))
     bot.send_message(
@@ -2403,6 +2411,7 @@ def occ_deliver(chat_id, order):
         f"<code>{link}</code>\n"
         "Или просто перешли ему открытку и письмо выше.",
         parse_mode="HTML", reply_markup=kb)
+    voice_flow.deliver_if_voice(chat_id, order)
     try:
         calendar_reminders.offer_after_order(chat_id, order)
     except Exception as exc:
@@ -3723,6 +3732,7 @@ group_letters.register(sys.modules[__name__])  # до fallback: его обра�
 calendar_reminders.register(sys.modules[__name__])
 partners.register(sys.modules[__name__])
 sources.register(sys.modules[__name__])
+voice_flow.register(sys.modules[__name__])
 
 
 @bot.message_handler(func=lambda m: True, content_types=["text"])
