@@ -921,6 +921,12 @@ def order_create(call):
         bot.answer_callback_query(call.id)
         return
 
+    prev = get_order(state["order_id"]) if state.get("order_id") else None
+    if prev and prev.get("status") == "pending" and state.get("order_sig") == (letter, state.get("promo")):
+        bot.answer_callback_query(call.id)
+        send_order_invoice(chat_id, prev)  # повторный тап «Получить письмо»: тот же заказ, а не второй
+        return
+
     profile = upsert_client(call.from_user)
     order_id = new_order_id()
     order = {
@@ -945,6 +951,7 @@ def order_create(call):
     partners.apply_to_order(order, chat_id, state.get("promo"))
     save_order(order)
     save_anketa_update(state, order_id=order_id)
+    state["order_id"], state["order_sig"] = order_id, (letter, state.get("promo"))
     bot.answer_callback_query(call.id)
 
     if order["price_rub"] <= 0:  # скидка и баланс покрыли всё — выдаём без оплаты
@@ -2137,7 +2144,12 @@ def occ_buy(call):
         safe_edit(call, f"Заказ устарел. Начни заново: «{OCC_BUTTON}».")
         return
     state["step"] = "occ_paywall"
+    prev = get_order(state["order_id"]) if state.get("order_id") else None
+    if prev and prev.get("status") == "pending" and state.get("order_sig") == (state["letter"], state.get("promo")):
+        send_order_invoice(chat_id, prev)  # повторный тап «Оплатить»: тот же заказ, а не второй
+        return
     order = occ_make_order(chat_id, call.from_user, state)
+    state["order_id"], state["order_sig"] = order["order_id"], (state["letter"], state.get("promo"))
     cb_event(chat_id, "buy", state["product"], state.get("card_ref"))
     if order["price_rub"] <= 0:  # скидка и баланс покрыли всё — выдаём без оплаты
         notify_admin_new_order(order)
