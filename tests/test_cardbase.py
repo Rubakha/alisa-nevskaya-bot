@@ -185,7 +185,11 @@ newf = os.path.join(postcards.BGS, "love", "zz_test.jpg")
 Image.new("RGB", (40, 30)).save(newf)
 try:
     cardbase.sync_catalog()
+    B.send_card_review(limit=1000)  # сначала разбираем уже лежащие в репозитории фоны на проверку
     cardbase.set_status("love-zz_test", "review")
+    cardbase.sync_catalog()
+    with cardbase._connect() as _c:
+        _c.execute("UPDATE cards SET review_sent=0 WHERE id='love-zz_test'")
     n = len(kinds("send_photo"))
     assert B.send_card_review() == 1 and len(kinds("send_photo")) == n + 1
     assert B.send_card_review() == 0, "повторно не присылаем"
