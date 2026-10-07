@@ -1107,6 +1107,8 @@ def send_yk_payment(chat_id, order, email=None):
         )
         return False
 
+    if url is None:  # заказ уже оплачен и выдан
+        return True
     kb = types.InlineKeyboardMarkup(row_width=1)
     kb.add(types.InlineKeyboardButton(f"💳 Оплатить {order['price_rub']}₽", url=url))
     kb.add(types.InlineKeyboardButton("✅ Я оплатил(а)", callback_data=f"yk:check:{order_id}"))
@@ -1125,6 +1127,14 @@ def yk_create(order, email, return_url):
     """Создаёт платёж ЮKassa для заказа (Telegram или VK) и возвращает ссылку на оплату."""
     order_id = order["order_id"]
     price = f"{order['price_rub']}.00"
+    if order.get("yk_payment_id"):  # повторное «Оплатить»: не плодим платежи, иначе оплата по старой ссылке потеряется
+        prev = yk_request("GET", f"{YK_API}/{order['yk_payment_id']}")
+        if prev.get("status") == "succeeded" and prev.get("paid"):
+            yk_check_order(order_id)  # уже оплачен — выдаём, новая ссылка не нужна
+            return None
+        url = (prev.get("confirmation") or {}).get("confirmation_url")
+        if prev.get("status") == "pending" and url and (prev.get("amount") or {}).get("value") == price:
+            return url
     payload = {
         "amount": {"value": price, "currency": "RUB"},
         "capture": True,
