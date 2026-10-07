@@ -1362,6 +1362,10 @@ def fulfill_order(chat_id, order_id, charge_id, email):
         )
         return
 
+    if order.get("status") == "done":  # повторная доставка апдейта об оплате (таймаут вебхука) — не выдаём второй раз
+        log.warning("fulfill_order: %s уже выдан, повтор пропущен", order_id)
+        return
+
     order["status"] = "done"
     order["paid_at"] = now_msk().isoformat()
     order["delivered_at"] = now_msk().isoformat()
