@@ -2,7 +2,7 @@
 """gen_cards.py — пополнение базы фонов открыток через WaveSpeed. Без Claude, по расписанию или вручную.
 
 Деньги: генерация платная, поэтому скрипт
-  * не запускается до 13.10.2026 (решение штаба: расходы с этой даты);
+  * не запускался до 13.10.2026; владелец снял замок 07.10.2026 (START_DATE);
   * не запускается при флаге ai-content-pipeline/.claude/GENERATION_PAUSED;
   * тратит только с флагом --confirm-spend и не выходит за бюджет:
     старт — 500 ₽ до 13.11.2026, дальше до 300 ₽ в месяц (tools/gen_cards_ledger.json);
@@ -37,7 +37,7 @@ DONE_PY = Path(r"D:\Рубаха\Рубаха проект\ops\done.py")
 DONE_PYTHON = Path(r"D:\Рубаха\Рубаха проект\venv\Scripts\python.exe")
 
 API = "https://api.wavespeed.ai/api/v3"
-START_DATE = date(2026, 10, 13)
+START_DATE = date(2026, 10, 7)   # снят замок 13.10 по прямому указанию владельца 07.10
 START_BUDGET_UNTIL = date(2026, 11, 13)
 START_BUDGET_RUB = 500
 MONTH_BUDGET_RUB = 300
