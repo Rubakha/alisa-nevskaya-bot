@@ -2218,6 +2218,14 @@ def occ_pack(call):
 
 
 def occ_doc_order(chat_id, user):
+    pending = pending_orders(chat_id)
+    if pending and pending[0].get("product") == OCC.DOC["key"]:  # повторный переход по ссылке papa_pdf
+        send_order_invoice(chat_id, pending[0])
+        return
+    if pending:
+        bot.send_message(chat_id, "⏳ Сначала оплати или отмени неоплаченный заказ.",
+                         reply_markup=pending_markup(pending[0]["order_id"]))
+        return
     profile = upsert_client(user)
     order = {
         "order_id": new_order_id(), "chat_id": chat_id, "name": profile["name"],
