@@ -733,6 +733,9 @@ def ask_next_question(chat_id):
     bot.send_chat_action(chat_id, "typing")
     question = AI.diagnostic_question(pain_title, state["history"]) if (AI and AI.available()) else \
         "Расскажи чуть больше — своими словами, как получится."
+    if question.startswith("[ai]"):  # сбой ИИ — клиенту не показываем текст ошибки
+        log.error("diagnostic question failed: %s", question)
+        question = "Расскажи чуть больше — своими словами, как получится."
     state["q_index"] += 1
     state["current_q"] = question
     state["step"] = "diag_q"
@@ -750,6 +753,9 @@ def finish_diagnostics(chat_id, state):
         mirror = AI.mirror_reflection(pain_title, answers)
     else:
         mirror = "Сейчас сложно всё разложить по полочкам — и это тоже честно."
+    if mirror.startswith("[ai]"):
+        log.error("mirror failed: %s", mirror)
+        mirror = "Сейчас сложно всё разложить по полочкам — и это тоже честно."
     bot.send_message(chat_id, mirror)
     state["mirror_text"] = mirror
     save_anketa_update(state, mirror_text=mirror)
@@ -759,6 +765,12 @@ def finish_diagnostics(chat_id, state):
         letter = AI.generate_letter(pain_title, answers, mirror, state.get("gift_for"))
     else:
         letter = "[ai] Помощник выключен — письмо не сгенерировано."
+    if letter.startswith("[ai]"):  # сбой ИИ: не показываем paywall с текстом ошибки
+        STATES.pop(chat_id, None)
+        bot.send_message(chat_id, "Не получилось написать письмо прямо сейчас 😔 "
+                                  "Попробуй через пару минут или напиши в «❓ Помощь».")
+        log.error("letter generation failed: %s", letter)
+        return
     state["letter_text"] = letter
     state["step"] = "paywall"
     save_anketa_update(state, letter_text=letter)
