@@ -1169,7 +1169,7 @@ def yk_check_order(order_id):
         order = get_order(order_id)
         if not order or not order.get("yk_payment_id"):
             return None
-        if order.get("status") != "pending":
+        if order.get("status") not in ("pending", "cancelled"):  # отменённый заказ тоже сверяем: страница оплаты могла быть открыта
             return "succeeded"
         payment = yk_request("GET", f"{YK_API}/{order['yk_payment_id']}")
         status = payment.get("status")
@@ -1213,7 +1213,7 @@ def yk_poll_loop():
     while True:
         try:
             for o in all_orders():
-                if o.get("status") != "pending" or not o.get("yk_payment_id"):
+                if o.get("status") not in ("pending", "cancelled") or not o.get("yk_payment_id"):
                     continue
                 created = datetime.fromisoformat(o.get("yk_created_at") or now_msk().isoformat())
                 if now_msk() - created > timedelta(hours=24):
