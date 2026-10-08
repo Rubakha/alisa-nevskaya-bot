@@ -135,6 +135,10 @@ def special_links(skip=None):
     return " · ".join(f'<a href="{u}">{html.escape(t)}</a>' for u, t in items if u != skip)
 
 
+XMAS = ["pozdravlenie-s-rozhdestvom-svoimi-slovami", "otkrytka-na-rozhdestvo-mame-blizkim",
+        "chto-napisat-na-rozhdestvo-krestnym-babushke", "rozhdestvenskoe-pismo"]
+
+
 def card_url(slug):
     """Адрес любой страницы сайта по слагу (новые открытки, особые, День отца, /pismo/...)."""
     if slug in CARD_PAGES or slug in SPECIAL or slug == "den-otca":
@@ -154,6 +158,13 @@ def card_title(slug):
 
 def card_links(skip=None):
     return " · ".join(f'<a href="/{s}">{html.escape(c["short"])}</a>' for s, c in CARD_PAGES.items() if s != skip)
+
+
+def xmas_block(key):
+    """На новогодних страницах — ссылки на рождественские (25.12 и 7.01)."""
+    if key != "newyear":
+        return ""
+    return "<h2>Рождество</h2><p>" + " · ".join(f'<a href="/{s}">{html.escape(CARD_PAGES[s]["short"])}</a>' for s in XMAS) + "</p>"
 
 
 def home():
@@ -187,7 +198,7 @@ def occasion(slug):
             f'<h2>Как написать</h2><ul>{tips}</ul><h2>Примеры фраз</h2>{ex}{HOW}'
             f'<div class="cta"><b>Не хочется подбирать слова самому?</b><p>Ответьте на 3 вопроса — Алиса соберёт письмо вашими деталями и открытку. Превью до оплаты.</p>'
             f'<a class="btn" href="{bot_link(key)}">Начать в Telegram</a><a class="btn ghost" href="{vk_link(key)}">Во ВКонтакте</a></div>'
-            f'<h2>Вопросы</h2>{faq}<h2>Другие поводы</h2><p>{others}</p><h2>Что написать, когда трудно</h2><p>{special_links()}</p>')
+            f'<h2>Вопросы</h2>{faq}<h2>Другие поводы</h2><p>{others}</p>{xmas_block(key)}<h2>Что написать, когда трудно</h2><p>{special_links()}</p>')
     return page(m["title"], m["desc"], body, f"/pismo/{slug}", m["faq"])
 
 
@@ -220,7 +231,7 @@ def special(slug):
             f'<h2>Примеры фраз</h2>{ex}<h2>Как написать</h2><ul>{tips}</ul>{HOW}'
             f'<div class="cta"><b>{rush}</b><p>Ответьте на 3 вопроса — Алиса соберёт письмо вашими деталями и открытку. Превью до оплаты, ссылку-конверт можно отправить в любой мессенджер.</p>'
             f'<a class="btn" href="{bot_link(key)}">Начать в Telegram</a><a class="btn ghost" href="{vk_link(key)}">Во ВКонтакте</a></div>'
-            f'<h2>Вопросы</h2>{faq}<h2>Ещё по теме</h2><p>{special_links(skip="/" + slug)}</p>')
+            f'<h2>Вопросы</h2>{faq}<h2>Ещё по теме</h2><p>{special_links(skip="/" + slug)}</p>{xmas_block(key)}')
     return page(m["title"], m["desc"], body, f"/{slug}", m["faq"])
 
 
@@ -261,6 +272,7 @@ FEED_OFFERS = [
     ("letter-parent", "Письмо папе или маме с открыткой", 199, "/pismo-pape-i-mame", "Личное письмо и открытка родителям: Алиса собирает текст из ваших деталей, превью до оплаты."),
     ("card-personal", "Открытка с личным текстом", 249, "/otkrytka-mame-s-lichnym-tekstom", "Цифровая открытка с вашими словами к любому поводу, ссылка-конверт для отправки в мессенджер."),
     ("letter-group", "Групповое письмо от всех", 399, "/otkrytka-blagodarnost-uchitelyu-vrachu", "Одно письмо от нескольких человек: каждый добавляет свои слова, Алиса собирает общий текст."),
+    ("christmas-letter", "Рождественское письмо с открыткой", 249, "/rozhdestvenskoe-pismo", "Тёплое рождественское письмо и открытка с вашими словами для близких, бережно для верующих и нейтрально для остальных."),
     ("santa-letter", "Именное письмо от Деда Мороза ребёнку", 249, "/pismo/pismo-ot-deda-moroza-rebenku", "Письмо от Деда Мороза по имени с настоящими успехами ребёнка."),
 ]
 

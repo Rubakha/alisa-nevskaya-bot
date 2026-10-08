@@ -20,7 +20,7 @@ import site_pages as SP  # noqa: E402
 from site_cards import CARDS  # noqa: E402
 
 c = B.app.test_client()
-assert 10 <= len(CARDS) <= 12
+assert len(CARDS) == 15
 sm = c.get("/sitemap.xml").get_data(as_text=True)
 locs = {e.text for e in ET.fromstring(sm).iter("{http://www.sitemaps.org/schemas/sitemap/0.9}loc")}
 for slug, m in CARDS.items():
@@ -44,12 +44,18 @@ assert "Открытки по поводам" in home and all(f'href="/{s}"' in 
 # старые адреса целы
 for u in ("/den-otca", "/den-materi", "/pismo/pismo-pape-i-mame", "/robots.txt"):
     assert c.get(u).status_code == 200, u
+# Рождество: перелинковка с новогодними страницами
+for slug in ("pozdravlenie-s-rozhdestvom-svoimi-slovami", "rozhdestvenskoe-pismo"):
+    assert "/pismo/novogodnee-pozdravlenie-svoimi-slovami" in c.get(f"/{slug}").get_data(as_text=True)
+assert "/pozdravlenie-s-rozhdestvom-svoimi-slovami" in c.get("/otkrytka-kollege-na-novyj-god").get_data(as_text=True)
+for u in ("/pismo/novogodnee-pozdravlenie-svoimi-slovami", "/pozdravlenie-kollegam-s-novym-godom"):
+    assert "/rozhdestvenskoe-pismo" in c.get(u).get_data(as_text=True), u
 # фид
 r = c.get("/feed.yml")
 assert r.status_code == 200
 root = ET.fromstring(r.get_data())
 offers = root.findall(".//offer")
-assert [o.find("price").text for o in offers] == ["199", "249", "399", "249"]
+assert [o.find("price").text for o in offers] == ["199", "249", "399", "249", "249"]
 assert all(o.find("url").text.startswith(SP.SITE_URL) for o in offers)
 assert root.find(".//category").text == "Исполнители"
 print("OK:", len(CARDS), "страниц")
