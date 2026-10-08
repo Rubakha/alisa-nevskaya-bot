@@ -10,6 +10,7 @@ from datetime import datetime
 from flask import Response, abort, request, send_file
 
 import occasions as OCC
+from site_cards import CARDS as CARD_PAGES
 from site_content import FATHER_DAY, PAGES
 from site_special import SPECIAL
 
@@ -134,6 +135,27 @@ def special_links(skip=None):
     return " · ".join(f'<a href="{u}">{html.escape(t)}</a>' for u, t in items if u != skip)
 
 
+def card_url(slug):
+    """Адрес любой страницы сайта по слагу (новые открытки, особые, День отца, /pismo/...)."""
+    if slug in CARD_PAGES or slug in SPECIAL or slug == "den-otca":
+        return f"/{slug}"
+    return f"/pismo/{slug}"
+
+
+def card_title(slug):
+    if slug in CARD_PAGES:
+        return CARD_PAGES[slug]["short"]
+    if slug in SPECIAL:
+        return SPECIAL[slug]["h1"].split(":")[0]
+    if slug == "den-otca":
+        return "Что написать папе на День отца"
+    return next((OCC.PRODUCTS[k]["title"] for k, v in PAGES.items() if v["slug"] == slug), slug)
+
+
+def card_links(skip=None):
+    return " · ".join(f'<a href="/{s}">{html.escape(c["short"])}</a>' for s, c in CARD_PAGES.items() if s != skip)
+
+
 def home():
     body = (f'<h1>Письмо и открытка к любому поводу — за 3 минуты</h1>'
             f'<p class="lead">Когда трудно сказать важное — Алиса помогает найти слова: маме и папе, любимым, другу, «прости» и «спасибо». От {OCC.price_from()} ₽.</p>'
@@ -141,7 +163,8 @@ def home():
             f'<a class="btn ghost" href="{vk_link("home")}">Или во ВКонтакте</a>'
             f'<a class="btn ghost" href="https://t.me/{BOT}?start=pdf">50 фраз для трудных разговоров — бесплатно</a>'
             f'{HOW}<h2>Поводы</h2>{tiles()}'
-            f'{season_cta()}<h2>Что написать, когда трудно</h2><p>{special_links()}</p>')
+            f'{season_cta()}<h2>Открытки по поводам</h2><p>{card_links()}</p>'
+            f'<h2>Что написать, когда трудно</h2><p>{special_links()}</p>')
     return page("Письмо с открыткой к любому поводу за 3 минуты — Письма Алисы",
                 "Личное письмо и открытка маме, папе, любимым, другу: ответьте на 3 вопроса — Алиса соберёт слова. От 199 ₽, превью до оплаты.",
                 body, "/")
@@ -201,11 +224,58 @@ def special(slug):
     return page(m["title"], m["desc"], body, f"/{slug}", m["faq"])
 
 
+def card_page(slug):
+    m = CARD_PAGES[slug]
+    key, p = m["key"], OCC.PRODUCTS[m["key"]]
+    ex = "".join(f'<div class="hand">{html.escape(e)}</div>' for e in m["phrases"])
+    faq = "".join(f"<details><summary>{html.escape(q)}</summary><p>{html.escape(a)}</p></details>" for q, a in m["faq"])
+    rush = f'Успейте к {m["deadline"]}' if m.get("deadline") else "Открытка с твоим текстом за 2 минуты"
+    near = " · ".join(f'<a href="{card_url(s)}">{html.escape(card_title(s))}</a>' for s in m["links"])
+    make = (f'<h2>Как сделать открытку с твоим текстом за 2 минуты</h2><ol class="steps">'
+            f'<li>Открой бота по кнопке и выбери повод. Он уже подставлен: «{html.escape(p["title"])}».</li>'
+            f'<li>Ответь на 3–4 вопроса: кому, что вас связывает, какая деталь важна. Можно взять любую фразу выше и дописать своё.</li>'
+            f'<li>Посмотри превью открытки и текста. Оплата только после того, как тебе понравилось.</li>'
+            f'<li>Отправь ссылку-конверт в Telegram или любой мессенджер. Придёт уведомление, когда её откроют.</li></ol>')
+    body = (f'<img class="hero-card" src="/card/{key}.jpg" alt="Открытка: {html.escape(p["title"])}">'
+            f'<h1>{html.escape(m["h1"])}</h1><p class="lead">{html.escape(m["lead"])}</p>'
+            f'<a class="btn" href="{bot_link(key)}">Сделать открытку — {p["price"]} ₽</a>'
+            f'<a class="btn ghost" href="{vk_link(key)}">Или во ВКонтакте</a>'
+            f'<h2>Готовые фразы для открытки</h2>{ex}{make}'
+            f'<div class="cta"><b>{rush}</b><p>Алиса соберёт текст из твоих деталей и положит его на открытку. 💌</p>'
+            f'<a class="btn" href="{bot_link(key)}">Начать в Telegram</a><a class="btn ghost" href="{vk_link(key)}">Во ВКонтакте</a></div>'
+            f'<h2>Вопросы</h2>{faq}<h2>Читай также</h2><p>{near}</p>'
+            f'<h2>Открытки по поводам</h2><p>{card_links(skip=slug)}</p>')
+    return page(m["title"], m["desc"], body, f"/{slug}", m["faq"])
+
+
 def sitemap():
-    urls = ["/", "/den-otca"] + [f"/{k}" for k in SPECIAL] + [f"/pismo/{v['slug']}" for v in PAGES.values()]
+    urls = ["/", "/den-otca"] + [f"/{k}" for k in SPECIAL] + [f"/{k}" for k in CARD_PAGES] + [f"/pismo/{v['slug']}" for v in PAGES.values()]
     day = datetime.now().strftime("%Y-%m-%d")
     xml = ('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
            + "".join(f"<url><loc>{SITE_URL}{u}</loc><lastmod>{day}</lastmod></url>" for u in urls) + "</urlset>")
+    return Response(xml, mimetype="application/xml")
+
+
+# Услуги для Яндекс «Услуги и предложения в поиске», категория «Исполнители»: цена — из каталога/договорённости
+FEED_OFFERS = [
+    ("letter-parent", "Письмо папе или маме с открыткой", 199, "/pismo-pape-i-mame", "Личное письмо и открытка родителям: Алиса собирает текст из ваших деталей, превью до оплаты."),
+    ("card-personal", "Открытка с личным текстом", 249, "/otkrytka-mame-s-lichnym-tekstom", "Цифровая открытка с вашими словами к любому поводу, ссылка-конверт для отправки в мессенджер."),
+    ("letter-group", "Групповое письмо от всех", 399, "/otkrytka-blagodarnost-uchitelyu-vrachu", "Одно письмо от нескольких человек: каждый добавляет свои слова, Алиса собирает общий текст."),
+    ("santa-letter", "Именное письмо от Деда Мороза ребёнку", 249, "/pismo/pismo-ot-deda-moroza-rebenku", "Письмо от Деда Мороза по имени с настоящими успехами ребёнка."),
+]
+
+
+def feed():
+    """YML-подобный фид услуг. Домен берётся из SITE_URL."""
+    now = datetime.now().strftime("%Y-%m-%dT%H:%M:%S+03:00")
+    offers = "".join(
+        f'<offer id="{oid}"><name>{html.escape(name)}</name><url>{html.escape(SITE_URL + path)}</url>'
+        f'<price>{price}</price><currencyId>RUR</currencyId><categoryId>1</categoryId>'
+        f'<picture>{SITE_URL}/card/family.jpg</picture><description>{html.escape(desc)}</description></offer>'
+        for oid, name, price, path, desc in FEED_OFFERS)
+    xml = (f'<?xml version="1.0" encoding="UTF-8"?><yml_catalog date="{now}"><shop><name>Письма Алисы</name>'
+           f'<company>Письма Алисы</company><url>{SITE_URL}</url><currencies><currency id="RUR" rate="1"/></currencies>'
+           f'<categories><category id="1">Исполнители</category></categories><offers>{offers}</offers></shop></yml_catalog>')
     return Response(xml, mimetype="application/xml")
 
 
@@ -246,6 +316,9 @@ def register(app, data_dir):
     app.add_url_rule("/den-otca", "site_father", father_day)
     for slug in SPECIAL:
         app.add_url_rule(f"/{slug}", f"site_special_{slug}", lambda slug=slug: special(slug))
+    for slug in CARD_PAGES:
+        app.add_url_rule(f"/{slug}", f"site_card_{slug}", lambda slug=slug: card_page(slug))
+    app.add_url_rule("/feed.yml", "site_feed", feed)
     app.add_url_rule("/sitemap.xml", "site_sitemap", sitemap)
     app.add_url_rule("/robots.txt", "site_robots", robots)
     app.add_url_rule("/card/<key>.jpg", "site_card", card)
