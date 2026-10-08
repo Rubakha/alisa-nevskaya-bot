@@ -7,7 +7,8 @@
   ELEVENLABS_VOICE_ID_F     id женского голоса
   ELEVENLABS_VOICE_ID_M     id мужского голоса (достаточно одного из двух)
   ELEVENLABS_MODEL          модель, по умолчанию eleven_multilingual_v2 (понимает русский)
-  VOICE_LETTER_PRICE        цена «Голосового письма», ₽ (по умолчанию 390)
+  VOICE_LETTER_PRICE        цена пункта каталога «Голосовое письмо», ₽ (по умолчанию 390)
+  VOICE_UPSELL_PRICE        фиксированная доплата «Озвучить голосом» к обычному письму, ₽ (по умолчанию 100)
   VOICE_MUSIC_DB            громкость подложки относительно голоса, dB (по умолчанию -22)
   VOICE_PAUSE_SEC           пауза между абзацами, сек (по умолчанию 0.8; 0 — без пауз)
 """
@@ -63,9 +64,12 @@ def price():
         return 390
 
 
-def surcharge(product_price):
-    """Доплата за озвучку письма, уже купленного по цене product_price. 0 — предлагать нечего."""
-    return max(price() - int(product_price or 0), 0)
+def upsell_price():
+    """Фиксированная доплата «Озвучить голосом» к обычному письму (после оплаты и на превью), ₽."""
+    try:
+        return max(int(_env("VOICE_UPSELL_PRICE", "100")), 0)
+    except ValueError:
+        return 100
 
 
 def _float_env(name, default):

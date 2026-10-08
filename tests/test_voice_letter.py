@@ -14,7 +14,7 @@ os.environ["ADMIN_ID"] = "1"
 os.environ["YOOKASSA_PROVIDER_TOKEN"] = "test"
 os.environ["DATA_DIR"] = tempfile.mkdtemp()
 os.environ["ANTHROPIC_API_KEY"] = ""
-for k in ("ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID_F", "ELEVENLABS_VOICE_ID_M", "VOICE_LETTER_PRICE"):
+for k in ("ELEVENLABS_API_KEY", "ELEVENLABS_VOICE_ID_F", "ELEVENLABS_VOICE_ID_M", "VOICE_LETTER_PRICE", "VOICE_UPSELL_PRICE"):
     os.environ.pop(k, None)
 
 import bot_best as B  # noqa: E402
@@ -140,7 +140,10 @@ os.environ["ELEVENLABS_API_KEY"] = "test-key"
 os.environ["ELEVENLABS_VOICE_ID_F"] = "voice-f"
 os.environ["ELEVENLABS_VOICE_ID_M"] = "voice-m"
 assert VL.enabled() and VL.genders() == ["f", "m"] and VL.price() == 390
-assert VL.surcharge(199) == 191 and VL.surcharge(449) == 0
+assert VL.upsell_price() == 100
+os.environ["VOICE_UPSELL_PRICE"] = "150"
+assert VL.upsell_price() == 150
+os.environ.pop("VOICE_UPSELL_PRICE")
 labels = [b.text for b in buttons(B.occ_catalog_markup())]
 assert "🎙 Голосовое письмо · 390₽" in labels, labels
 
@@ -148,13 +151,13 @@ assert "🎙 Голосовое письмо · 390₽" in labels, labels
 order = B.get_order(oid)
 kb = B.types.InlineKeyboardMarkup()
 VF.add_upsell(kb, order)
-assert [b.text for b in buttons(kb)] == ["🎙 Озвучить голосом — +191₽"], buttons(kb)
+assert [b.text for b in buttons(kb)] == ["🎙 Озвучить голосом — +100₽"], buttons(kb)
 SENT.clear()
 VF._upsell(call(f"vo:up:{oid}"))                    # два голоса — сначала выбор
 assert "голосом" in calls("send_message")[-1][1][1] and not calls("send_invoice")
 VF._upsell(call(f"vo:up:{oid}:m"))
 inv = calls("send_invoice")[-1][2]
-assert inv["prices"][0].amount == 191 * 100, inv
+assert inv["prices"][0].amount == 100 * 100, inv
 addon_id = inv["invoice_payload"]
 addon = B.get_order(addon_id)
 assert addon["product"] == "voice_addon" and addon["voice_for"] == oid and addon["voice_gender"] == "m"
@@ -265,22 +268,22 @@ B.STATES.pop(500, None)
 write_letter()
 st = B.STATES[500]
 kb = B.occ_preview_markup(st)
-assert "🎙 Озвучить голосом — +191₽" in [b.text for b in buttons(kb)], [b.text for b in buttons(kb)]
+assert "🎙 Озвучить голосом — +100₽" in [b.text for b in buttons(kb)], [b.text for b in buttons(kb)]
 SENT.clear()
 VF._preview_toggle(call("vo:pv:on"))                 # два голоса — спрашивает
 assert "голосом" in calls("send_message")[-1][1][1] and not st.get("voice")
 VF._preview_toggle(call("vo:pv:on:m"))
-assert st["voice"] and st["price"] == 390 and st["voice_gender"] == "m"
+assert st["voice"] and st["price"] == 199 + 100 and st["voice_gender"] == "m"
 assert calls("edit_message_text"), "превью не перерисовано"
 kb = B.occ_preview_markup(st)
 texts = [b.text for b in buttons(kb)]
-assert any("390" in t for t in texts) and "🎙 Озвучка включена · убрать" in texts, texts
+assert any("299" in t for t in texts) and "🎙 Озвучка включена · убрать" in texts, texts
 VF._preview_toggle(call("vo:pv:off"))
 assert not st.get("voice") and not st.get("price")
 VF._preview_toggle(call("vo:pv:on:f"))
 B.occ_buy(call("occ:buy"))
 inv = calls("send_invoice")[-1][2]
-assert inv["prices"][0].amount == 390 * 100
+assert inv["prices"][0].amount == 299 * 100
 pid = inv["invoice_payload"]
 n = len(TTS_CALLS)
 pay(pid)

@@ -89,11 +89,11 @@ def _go(call):
 # ── апселл после обычного письма ─────────────────────────────
 
 def _upsell_price(order):
-    """Доплата = цена «Голосового письма» минус прайсовая цена этого письма (скидки не учитываем)."""
+    """Фиксированная доплата VOICE_UPSELL_PRICE за озвучку уже выданного письма."""
     if order.get("voice") or order.get("voice_addon_order") or order.get("status") != "done":
         return 0
     prod = B.OCC.PRODUCTS.get(order.get("product"))
-    return VL.surcharge(prod["price"]) if prod else 0
+    return VL.upsell_price() if prod else 0
 
 
 def add_upsell(kb, order):
@@ -144,7 +144,7 @@ def _upsell(call):
     B.bot.send_message(
         chat_id,
         f"🎙 Прочитаю это письмо голосом — с тихой музыкой, как аудиоподарок. Доплата: <b>{extra}₽</b> "
-        f"(вместе с письмом выходит {VL.price()}₽).", parse_mode="HTML")
+        "Письмо и открытка у тебя уже есть — платишь только за голос 🤍", parse_mode="HTML")
     if B.send_order_invoice(chat_id, addon):
         B.notify_admin_new_order(addon)
 
@@ -155,7 +155,7 @@ def add_preview_toggle(kb, state):
     """Кнопка на превью: включить озвучку (+N ₽) или вернуть обычное письмо."""
     if not VL.enabled() or state.get("group") or state.get("product") not in B.OCC.PRODUCTS:
         return
-    extra = VL.surcharge(B.OCC.PRODUCTS[state["product"]]["price"])
+    extra = VL.upsell_price()
     if state.get("voice"):
         kb.add(types.InlineKeyboardButton("🎙 Озвучка включена · убрать", callback_data="vo:pv:off"))
     elif extra > 0:
@@ -190,7 +190,8 @@ def _preview_toggle(call):
             gender = gs[0]
         if state.get("price"):
             state["price_before_voice"] = state["price"]
-        state.update(voice=True, voice_gender=gender, price=VL.price())
+        base = state.get("price") or B.OCC.PRODUCTS[state["product"]]["price"]
+        state.update(voice=True, voice_gender=gender, price=base + VL.upsell_price())
     B.occ_refresh_text(chat_id, state)
 
 

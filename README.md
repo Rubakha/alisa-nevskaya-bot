@@ -163,7 +163,8 @@ $DATA_DIR/
 | `ELEVENLABS_API_KEY` | ключ API ElevenLabs |
 | `ELEVENLABS_VOICE_ID_F` / `ELEVENLABS_VOICE_ID_M` | id женского / мужского голоса (достаточно одного) |
 | `ELEVENLABS_MODEL` | модель, по умолчанию `eleven_multilingual_v2` (русский поддерживает) |
-| `VOICE_LETTER_PRICE` | цена, ₽ (по умолчанию 390); доплата апселла = цена − прайсовая цена письма |
+| `VOICE_LETTER_PRICE` | цена пункта каталога, ₽ (по умолчанию 390) |
+| `VOICE_UPSELL_PRICE` | фиксированная доплата «Озвучить голосом» к обычному письму, ₽ (по умолчанию 100) |
 | `VOICE_MUSIC_DB` | громкость подложки, dB (по умолчанию −22) |
 | `VOICE_PAUSE_SEC` | пауза между абзацами, сек (по умолчанию 0.8; 0 — без пауз) |
 
