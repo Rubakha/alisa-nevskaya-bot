@@ -31,3 +31,4 @@ data/
 # Логи
 *.log
 tools/_compare/
+tools/_samples/

@@ -278,6 +278,32 @@ def cmd_compare(a):
     report_done(f"Сравнение моделей для фонов открыток: {total * USD_RUB:.0f} ₽ расход")
 
 
+def cmd_sample(a):
+    """По одной пробной картинке на повод из JSON с промптами — в tools/_samples/ (репозиторий и база не трогаются)."""
+    prompts = json.loads(Path(a.prompts).read_text(encoding="utf-8"))
+    keys = [k for k in prompts if not a.occasion_only or k == a.occasion_only]
+    m = MODELS[a.model]
+    est = len(keys) * m["usd"] * USD_RUB
+    guards(a.confirm_spend, est)
+    key = load_key()
+    out_dir = Path(__file__).resolve().parent / "_samples"
+    out_dir.mkdir(exist_ok=True)
+    spent_rub = 0.0
+    for occ in keys:
+        prompt = prompts[occ] + ". " + STYLE
+        img, spent = generate(key, a.model, prompt)
+        usd = spent if spent is not None else m["usd"]
+        rub = round(usd * USD_RUB, 2)
+        (out_dir / f"{occ}.jpg").write_bytes(to_card_jpeg(img))
+        add_ledger({"ts": datetime.now().isoformat(timespec="seconds"), "model": a.model, "occasion": occ,
+                    "card_id": "sample", "usd": usd, "rub": rub})
+        spent_rub += rub
+        print(f"{occ}: {rub} ₽ → {out_dir / (occ + '.jpg')}")
+    print(f"\nИтого {spent_rub:.1f} ₽. Осталось бюджета {remaining_rub():.0f} ₽.")
+    if a.report:
+        report_done(f"Пробные фоны открыток по трендам 2026: {len(keys)} шт, расход {spent_rub:.0f} ₽ (WaveSpeed, {a.model})")
+
+
 def cmd_run(a):
     m = MODELS[a.model]
     est = a.count * m["usd"] * USD_RUB
@@ -317,7 +343,7 @@ def cmd_run(a):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name, fn in (("plan", cmd_plan), ("compare", cmd_compare), ("run", cmd_run)):
+    for name, fn in (("plan", cmd_plan), ("compare", cmd_compare), ("run", cmd_run), ("sample", cmd_sample)):
         p = sub.add_parser(name)
         p.add_argument("--model", default="z-image", choices=list(MODELS))
         p.add_argument("--occasion", default="birthday", choices=list(SCENES))
@@ -325,6 +351,8 @@ def main():
         p.add_argument("--count", type=int, default=1)
         p.add_argument("--confirm-spend", action="store_true")
         p.add_argument("--report", action="store_true", help="записать итог в отчёт через done.py")
+        p.add_argument("--prompts", default=str(Path(__file__).resolve().parent / "prompts_v2.json"))
+        p.add_argument("--occasion-only", default=None)
         p.set_defaults(fn=fn)
     a = ap.parse_args()
     a.fn(a)
