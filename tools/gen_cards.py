@@ -185,8 +185,12 @@ def build_prompt(occasion, index, season):
 
 
 def next_stem(occasion):
+    """Следующий номер фона. Учитывает и удалённые (журнал расходов, каталог): id вида «повод-NNN» не повторяются,
+    иначе новая картинка совпала бы с id уже отклонённой в базе бота и не показалась бы."""
     folder = BGS / occasion
     nums = [int(p.stem) for p in folder.glob("*.jpg") if p.stem.isdigit()] if folder.exists() else []
+    used = [e.get("card_id", "") for e in ledger()["entries"]] + [c.get("id", "") for c in load_catalog()["cards"]]
+    nums += [int(u.split("-", 1)[1]) for u in used if u.startswith(occasion + "-") and u.split("-", 1)[1].isdigit()]
     return f"{max(nums, default=0) + 1:03d}"
 
 

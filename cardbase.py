@@ -85,6 +85,10 @@ def sync_catalog():
                      (meta or {}).get("prompt", ""), (meta or {}).get("cost_rub", 0),
                      (meta or {}).get("created_at", _now())))
                 added += 1
+        # файл фона удалён из репозитория, а он ещё ждал проверки — больше не предлагаем владельцу
+        for r in c.execute("SELECT id FROM cards WHERE status='review'").fetchall():
+            if not file_exists(r["id"]):
+                c.execute("UPDATE cards SET status='retired' WHERE id=?", (r["id"],))
         c.commit()
     return added
 

@@ -33,6 +33,19 @@ assert [c["id"] for c in cardbase.review_queue()] == ["love-004"]
 assert cardbase.set_status("love-004", "active") and len(cardbase.active_ids("love")) == 2
 assert cardbase.pick_ref(1, "nothing") is None
 
+# фон на проверке, файл которого удалили из репозитория, бот сам переводит в «убрано»
+tmp_file = os.path.join(bgs, "birthday", "009.jpg")
+Image.new("RGB", (40, 30)).save(tmp_file)
+with open(os.path.join(bgs, "catalog.json"), "w", encoding="utf-8") as f:
+    json.dump({"cards": [{"id": "birthday-009", "status": "review"}]}, f)
+cardbase.sync_catalog()
+assert cardbase.get_card("birthday-009")["status"] == "review"
+os.remove(tmp_file)
+cardbase.sync_catalog()
+assert cardbase.get_card("birthday-009")["status"] == "retired"
+assert "birthday-009" not in [c["id"] for c in cardbase.review_queue()]
+assert "birthday-009" not in cardbase.active_ids("birthday")
+
 seen = []
 for _ in range(2 + 2 * cardbase.VARIANTS):  # все варианты повода без повторов
     r = cardbase.pick_ref(7, "birthday", seen)
