@@ -127,10 +127,15 @@ print("OK: без ключа фича скрыта")
 # ── 2. очистка текста, паузы, чанки ──────────────────────────
 t = VL.clean_text("Привет, Катя 🌿\n\nТы *лучшая* ✉️🤍\nправда\n\n\n▒▒▒")
 assert t == "Привет, Катя\n\nТы лучшая правда", repr(t)
-assert VL.with_pauses("а\n\nб") == 'а <break time="0.8s" /> б'
-os.environ["VOICE_PAUSE_SEC"] = "0"
+assert VL.with_pauses("а.\n\nб?\n\nв.") == "а...\n\nб?\n\nв."
+os.environ["VOICE_PAUSE"] = "0"
 assert VL.with_pauses("а\n\nб") == "а\n\nб"
-os.environ.pop("VOICE_PAUSE_SEC")
+os.environ.pop("VOICE_PAUSE")
+assert VL.clean_text("Привет [laughs] Катя [warmly]") == "Привет laughs Катя warmly"
+assert VL.direction() == "[warmly, softly] "
+os.environ["VOICE_DIRECTION"] = ""
+assert VL.direction() == ""
+os.environ.pop("VOICE_DIRECTION")
 big = "\n\n".join(["Слово. " * 300] * 4)
 assert all(len(c) <= VL.MAX_CHUNK for c in VL.chunks(big)) and len(VL.chunks(big)) > 1
 print("OK: текст")
@@ -165,8 +170,11 @@ pay(addon_id)
 assert len(TTS_CALLS) == 1 and TTS_CALLS[0]["url"].endswith("/voice-m"), TTS_CALLS
 assert TTS_CALLS[0]["headers"]["xi-api-key"] == "test-key"
 sent_text = TTS_CALLS[0]["json"]["text"]
-assert "🌿" not in sent_text and "✉" not in sent_text and "<break" in sent_text, sent_text
-assert TTS_CALLS[0]["json"]["model_id"] == "eleven_multilingual_v2"
+assert "🌿" not in sent_text and "✉" not in sent_text and "<break" not in sent_text, sent_text
+assert sent_text.startswith("[warmly, softly] Катя") and "..." in sent_text and "[" not in sent_text[1:].replace("[warmly, softly]", ""), sent_text
+js = TTS_CALLS[0]["json"]
+assert js["model_id"] == "eleven_v4" and js["seed"] == 42, js
+assert js["voice_settings"] == {"stability": 0.35, "similarity_boost": 0.85, "use_speaker_boost": True}, js
 assert calls("send_voice") and calls("send_audio"), "нет выдачи"
 parent, addon = B.get_order(oid), B.get_order(addon_id)
 assert parent["voice_file_id"] == "VOICE-FID" and parent["voice_addon_order"] == addon_id
@@ -300,4 +308,19 @@ os.environ.pop("ELEVENLABS_API_KEY")                 # без ключа кно�
 assert not any("vo:pv" in (b.callback_data or "") for b in buttons(B.occ_preview_markup(B.STATES[500])))
 os.environ["ELEVENLABS_API_KEY"] = "test-key"
 print("OK: озвучка на превью")
+
+# ── 10. мужской голос не задан → выбор голоса не показывается ─
+os.environ.pop("ELEVENLABS_VOICE_ID_M")
+assert VL.genders() == ["f"]
+B.STATES.pop(500, None)
+SENT.clear()
+VF._go(call("vo:go:birthday"))
+assert B.STATES[500]["voice"] and B.STATES[500]["voice_gender"] == "f", "спросил голос при одном голосе"
+assert not any("Каким голосом" in str(x[1]) for x in SENT)
+B.STATES.pop(500, None)
+write_letter()
+SENT.clear()
+VF._preview_toggle(call("vo:pv:on"))
+assert B.STATES[500]["voice"] and not any("Каким голосом" in str(x[1]) for x in SENT)
+print("OK: один голос без выбора")
 print("OK: all voice letter checks passed")

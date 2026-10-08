@@ -162,11 +162,13 @@ $DATA_DIR/
 |---|---|
 | `ELEVENLABS_API_KEY` | ключ API ElevenLabs |
 | `ELEVENLABS_VOICE_ID_F` / `ELEVENLABS_VOICE_ID_M` | id женского / мужского голоса (достаточно одного) |
-| `ELEVENLABS_MODEL` | модель, по умолчанию `eleven_multilingual_v2` (русский поддерживает) |
+| `ELEVENLABS_MODEL` | модель, по умолчанию `eleven_v4` |
+| `ELEVENLABS_STABILITY` / `ELEVENLABS_SIMILARITY` / `ELEVENLABS_SEED` | профиль голоса Алисы: 0.35 / 0.85 / 42 (`use_speaker_boost` включён, `style` не передаётся — v4 его не принимает) |
+| `VOICE_DIRECTION` | указание подачи в начале текста, по умолчанию `[warmly, softly]` |
 | `VOICE_LETTER_PRICE` | цена пункта каталога, ₽ (по умолчанию 390) |
 | `VOICE_UPSELL_PRICE` | фиксированная доплата «Озвучить голосом» к обычному письму, ₽ (по умолчанию 100) |
 | `VOICE_MUSIC_DB` | громкость подложки, dB (по умолчанию −22) |
-| `VOICE_PAUSE_SEC` | пауза между абзацами, сек (по умолчанию 0.8; 0 — без пауз) |
+| `VOICE_PAUSE` | пауза между абзацами многоточием (по умолчанию 1; 0 — выкл.). SSML `<break>` v4 не понимает |
 
 Музыка — `assets/music/` (см. README там: только треки с правом коммерческого использования, в репозиторий не коммитим).
 Нужен `ffmpeg` в окружении; без него уходит только mp3 без музыки. Расход символов — `DATA_DIR/voice_usage.jsonl`

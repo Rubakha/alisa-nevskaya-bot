@@ -6,11 +6,15 @@
   ELEVENLABS_API_KEY        ключ API (без него фича выключена)
   ELEVENLABS_VOICE_ID_F     id женского голоса
   ELEVENLABS_VOICE_ID_M     id мужского голоса (достаточно одного из двух)
-  ELEVENLABS_MODEL          модель, по умолчанию eleven_multilingual_v2 (понимает русский)
+  ELEVENLABS_MODEL          модель, по умолчанию eleven_v4
+  ELEVENLABS_STABILITY      stability голоса (по умолчанию 0.35)
+  ELEVENLABS_SIMILARITY     similarity_boost (по умолчанию 0.85); use_speaker_boost всегда true, style не передаётся (v4 его не принимает)
+  ELEVENLABS_SEED           seed для повторяемости подачи (по умолчанию 42)
+  VOICE_DIRECTION           указание подачи в начале текста (по умолчанию "[warmly, softly]"; пусто — без указания)
   VOICE_LETTER_PRICE        цена пункта каталога «Голосовое письмо», ₽ (по умолчанию 390)
   VOICE_UPSELL_PRICE        фиксированная доплата «Озвучить голосом» к обычному письму, ₽ (по умолчанию 100)
   VOICE_MUSIC_DB            громкость подложки относительно голоса, dB (по умолчанию -22)
-  VOICE_PAUSE_SEC           пауза между абзацами, сек (по умолчанию 0.8; 0 — без пауз)
+  VOICE_PAUSE               пауза между абзацами многоточием (по умолчанию 1; 0 — просто пустая строка). v4 не понимает SSML <break>
 """
 import hashlib
 import json
@@ -85,21 +89,29 @@ _EMOJI = re.compile("[\U00010000-\U0010ffff☀-➿⬀-⯿️‍⃣]")
 
 
 def clean_text(text):
-    """Текст для озвучки: без эмодзи и разметки, абзацы разделены пустой строкой."""
+    """Текст для озвучки: без эмодзи, разметки и квадратных скобок (v4 читает их как указания подачи),
+    абзацы разделены пустой строкой."""
     text = _EMOJI.sub("", text or "")
-    text = re.sub(r"[*_`~#>]+", "", text)
+    text = re.sub(r"[*_`~#>\[\]]+", "", text)
     text = text.replace("▒", "")
     paras = [re.sub(r"[ \t]+", " ", re.sub(r"\s*\n\s*", " ", p)).strip() for p in re.split(r"\n\s*\n", text)]
     return "\n\n".join(p for p in paras if p)
 
 
 def with_pauses(text):
-    """Между абзацами — явная пауза (SSML break понимают multilingual v2 / turbo)."""
-    sec = _float_env("VOICE_PAUSE_SEC", 0.8)
-    if sec <= 0:
+    """Пауза между абзацами: многоточие в конце абзаца + пустая строка (SSML <break> v4 не понимает)."""
+    if _env("VOICE_PAUSE", "1") in ("0", "false", "no"):
         return text
-    sec = min(sec, 3.0)
-    return f' <break time="{sec:g}s" /> '.join(text.split("\n\n"))
+    paras = text.split("\n\n")
+    out = [p if p.endswith(("...", "…", "?", "!")) else p.rstrip(".") + "..." for p in paras[:-1]]
+    return "\n\n".join(out + paras[-1:])
+
+
+def direction():
+    """Указание подачи для v4, например «[warmly, softly] » (в начало каждого запроса)."""
+    d = os.getenv("VOICE_DIRECTION")
+    d = "[warmly, softly]" if d is None else d.strip()
+    return d + " " if d else ""
 
 
 def chunks(text, limit=MAX_CHUNK):
@@ -137,10 +149,14 @@ def tts(text, gender="f"):
     text = text[:MAX_TOTAL]
     audio, sent = [], 0
     for part in chunks(text):
+        body = direction() + with_pauses(part)
         payload = {
-            "text": with_pauses(part),
-            "model_id": _env("ELEVENLABS_MODEL", "eleven_multilingual_v2"),
-            "voice_settings": {"stability": 0.55, "similarity_boost": 0.8, "style": 0.2},
+            "text": body,
+            "model_id": _env("ELEVENLABS_MODEL", "eleven_v4"),
+            "seed": int(_float_env("ELEVENLABS_SEED", 42)),
+            "voice_settings": {"stability": _float_env("ELEVENLABS_STABILITY", 0.35),
+                               "similarity_boost": _float_env("ELEVENLABS_SIMILARITY", 0.85),
+                               "use_speaker_boost": True},
         }
         r = requests.post(API.format(voice=vid), params={"output_format": "mp3_44100_128"},
                           headers={"xi-api-key": api_key(), "Accept": "audio/mpeg"},
@@ -148,7 +164,7 @@ def tts(text, gender="f"):
         if r.status_code != 200 or not r.content:
             raise RuntimeError(f"ElevenLabs {r.status_code}: {(r.text or '')[:200]}")
         audio.append(r.content)
-        sent += len(part)
+        sent += len(body)
     return b"".join(audio), sent
 
 
@@ -240,7 +256,7 @@ def make(text, gender="f", seed=""):
 def log_usage(data_dir, order_id, chars, gender, ok=True):
     """Символы ElevenLabs на заказ: строка в DATA_DIR/voice_usage.jsonl (отдельного учёта расходов в боте нет)."""
     rec = {"at": time.strftime("%Y-%m-%dT%H:%M:%S"), "order_id": order_id, "chars": chars,
-           "voice": gender, "ok": ok, "model": _env("ELEVENLABS_MODEL", "eleven_multilingual_v2")}
+           "voice": gender, "ok": ok, "model": _env("ELEVENLABS_MODEL", "eleven_v4")}
     log.info("elevenlabs usage: %s", json.dumps(rec, ensure_ascii=False))
     try:
         os.makedirs(data_dir, exist_ok=True)
