@@ -45,13 +45,21 @@ def validate_init_data(init_data, token, now=None, max_age=MAX_AGE):
         return None
 
 
+def open_link(order, code, site):
+    """Куда ведёт кнопка получателя. По умолчанию — страница-конверт на сайте; если сайт недоступен, переменная
+    ENVELOPE_LINK=bot переключает на открытие конверта прямо в Telegram (не зависит от сайта)."""
+    if (B.os.getenv("ENVELOPE_LINK", "web") if B else "web") == "bot":
+        return f"https://t.me/{B.BOT_USERNAME}?start=g_{code}"
+    return f"{site}/e/{code}"
+
+
 def button_label(order):
     return f"💌 Вскрыть письмо от {envelope_pages.from_whom(order)}"[:60]
 
 
 def prepared_result(order, code, site):
     """Что получит адресат: открытка/GIF и одна кнопка со ссылкой на закрытый конверт."""
-    markup = {"inline_keyboard": [[{"text": button_label(order), "url": f"{site}/e/{code}"}]]}
+    markup = {"inline_keyboard": [[{"text": button_label(order), "url": open_link(order, code, site)}]]}
     if order.get("card_anim_file_id"):
         return {"type": "gif", "id": code, "gif_file_id": order["card_anim_file_id"], "reply_markup": markup}
     if order.get("card_file_id"):

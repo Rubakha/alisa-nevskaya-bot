@@ -80,6 +80,13 @@ assert M.prepared_result(order, code, SITE)["type"] == "gif"
 assert M.prepared_result({**order, "card_file_id": None, "card_anim_file_id": None}, code, SITE)["type"] == "article"
 order["card_anim_file_id"] = None
 
+# аварийный переключатель: сайт недоступен → кнопка ведёт в Telegram
+os.environ["ENVELOPE_LINK"] = "bot"
+bot_res = M.prepared_result(order, code, SITE)
+assert bot_res["reply_markup"]["inline_keyboard"][0][0]["url"] == f"https://t.me/{B.BOT_USERNAME}?start=g_{code}"
+os.environ.pop("ENVELOPE_LINK")
+assert M.prepared_result(order, code, SITE)["reply_markup"]["inline_keyboard"][0][0]["url"] == f"{SITE}/e/{code}"
+
 # ── эндпоинты ──
 client = B.app.test_client()
 page = client.get(f"/share/{code}")

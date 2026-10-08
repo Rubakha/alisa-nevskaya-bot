@@ -2534,7 +2534,7 @@ def occ_inline_send(query):
         bot.answer_inline_query(query.id, [], cache_time=0, is_personal=True)
         return
 
-    teaser, link = occ_gift_teaser(order), occ_web_envelope(order)
+    teaser, link = occ_gift_teaser(order), miniapp_share.open_link(order, code, site_pages.SITE_URL)
     kb = types.InlineKeyboardMarkup()
     kb.add(types.InlineKeyboardButton(miniapp_share.button_label(order), url=link))
     caption = f"{teaser}\n\n👉 {link}"  # для текстовых вариантов: ссылка и в тексте
