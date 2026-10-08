@@ -208,4 +208,28 @@ assert anims[0][1][1].getvalue()[:3] == b"GIF" and anims[1][1][1] == "AN", "пе
 assert any("Абзац два." in str(s_[1]) for s_ in SENT if s_[0] == "send_message"), "письмо целиком"
 assert any(s_[1][0] == 500 and "открыл(а) твоё письмо" in s_[1][1] for s_ in SENT if s_[0] == "send_message"), "отправитель уведомлён"
 assert B.get_order(order["order_id"])["opened_by"] == 777
+# ── подсказки: полоска над списком, подтверждение после выбора, инструкция по /start howsend ──
+SENT.clear()
+B.occ_inline_send(pytypes.SimpleNamespace(id="q", query="card_" + code, from_user=user(500)))
+ans = [s_ for s_ in SENT if s_[0] == "answer_inline_query"][-1]
+hint = ans[2]["button"]
+assert hint.text == "👆 Коснись открытки — она отправится" and hint.start_parameter == "howsend"
+SENT.clear()
+B.occ_inline_send(pytypes.SimpleNamespace(id="q", query="alt_" + code, from_user=user(500)))
+assert [s_ for s_ in SENT if s_[0] == "answer_inline_query"][-1][2]["button"].text == "👆 Выбери вариант и коснись его"
+SENT.clear()
+B.occ_inline_chosen(pytypes.SimpleNamespace(result_id=code, from_user=user(500), query="card_" + code))
+done = [s_ for s_ in SENT if s_[0] == "send_message" and s_[1][0] == 500]
+assert done and "Письмо для Катя отправлено" in done[0][1][1]
+assert B.get_order(order["order_id"])["sent_count"] == 1
+B.occ_inline_chosen(pytypes.SimpleNamespace(result_id=code + "t", from_user=user(500), query="alt_" + code))   # вариант «текстом»
+assert B.get_order(order["order_id"])["sent_count"] == 2
+SENT.clear()
+B.occ_inline_chosen(pytypes.SimpleNamespace(result_id=code, from_user=user(999), query="card_" + code))      # чужой
+assert not SENT and B.get_order(order["order_id"])["sent_count"] == 2
+SENT.clear()
+B.cmd_start(pytypes.SimpleNamespace(chat=pytypes.SimpleNamespace(id=500), text="/start howsend", content_type="text",
+                                    from_user=user(500)))
+how = [s_ for s_ in SENT if s_[0] == "send_message"][-1][1][1]
+assert "Нажми «Отправить»" in how and "Коснись открытки" in how
 print("OK: send pack")

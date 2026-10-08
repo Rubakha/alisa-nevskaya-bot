@@ -596,6 +596,11 @@ def cmd_start(message):
     if len(parts) == 2 and parts[1].startswith("grp_"):  # участник общего письма: сразу к вопросам
         group_letters.join(chat_id, message.from_user, parts[1][4:])
         return
+    if len(parts) == 2 and parts[1] == "howsend":  # нажали подсказку над списком в «Отправить через чат»
+        bot.send_message(chat_id, "Как отправить письмо:\n\n1. Нажми «Отправить» и выбери человека.\n"
+                                  "2. Коснись открытки в списке — она уйдёт с кнопкой «Вскрыть письмо».\n\n"
+                                  "Я сообщу тебе, когда он откроет письмо ✨", reply_markup=kb_client())
+        return
     if len(parts) == 2 and parts[1].startswith("pinvite_"):  # партнёр открывает свой кабинет
         partners.bind_invite(chat_id, parts[1][8:])
         return
@@ -2557,7 +2562,7 @@ def occ_inline_send(query):
             results.append(types.InlineQueryResultArticle(
                 id=code, title="💌 Письмо с открыткой",
                 input_message_content=types.InputTextMessageContent(message_text=teaser), reply_markup=kb))
-        bot.answer_inline_query(query.id, results, cache_time=0, is_personal=True)
+        bot.answer_inline_query(query.id, results, cache_time=0, is_personal=True, button=inline_hint(alt))
         return
     letter = (order.get("letter_text") or "").strip()
     if letter:  # письмо целиком текстом — для тех, кому нужен сам текст, а не конверт
@@ -2570,7 +2575,35 @@ def occ_inline_send(query):
     results.append(types.InlineQueryResultArticle(
         id=f"{code}l", title="🔗 Только ссылка на конверт", description="Письмо откроется в боте, ты узнаешь об этом",
         input_message_content=types.InputTextMessageContent(message_text=caption), reply_markup=kb))
-    bot.answer_inline_query(query.id, results, cache_time=0, is_personal=True)
+    bot.answer_inline_query(query.id, results, cache_time=0, is_personal=True, button=inline_hint(alt))
+
+
+def inline_hint(alt=False):
+    """Полоска-подсказка над списком результатов: что делать дальше. По нажатию — короткая инструкция в боте."""
+    text = "👆 Выбери вариант и коснись его" if alt else "👆 Коснись открытки — она отправится"
+    return types.InlineQueryResultsButton(text=text, start_parameter="howsend")
+
+
+@bot.chosen_inline_handler(func=lambda r: True)
+def occ_inline_chosen(result):
+    """Telegram сообщает, что результат выбран (нужен «Inline feedback» в BotFather): подтверждаем отправителю."""
+    ref = None
+    for cand in (result.result_id, (result.result_id or "")[:-1]):
+        ref = read_json(gift_path(cand), None) if cand and cand.isalnum() else None
+        if ref:
+            break
+    order = get_order(ref["order_id"]) if ref else None
+    if not order or order.get("chat_id") != result.from_user.id:
+        return
+    order["sent_count"] = order.get("sent_count", 0) + 1
+    order["last_sent_at"] = now_msk().isoformat()
+    save_order(order)
+    name = (order.get("gift_for") or "").strip()
+    try:
+        bot.send_message(order["chat_id"], f"✅ Письмо{' для ' + esc(name) if name else ''} отправлено. "
+                                           "Как только его откроют, я сообщу ✨", parse_mode="HTML")
+    except Exception as exc:
+        log.error("chosen_inline confirm: %s", exc)
 
 
 def occ_gift_teaser(order):
