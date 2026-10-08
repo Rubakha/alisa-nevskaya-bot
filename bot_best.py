@@ -28,6 +28,7 @@ from telebot.types import LabeledPrice, Update
 import calendar_reminders
 import ai_card
 import cardanim
+import envelope_pages
 import cardbase
 import constructor
 import group_letters
@@ -2452,7 +2453,8 @@ def occ_deliver(chat_id, order):
     name = (order.get("gift_for") or "").strip()
     label = f"💌 Отправить {name}" if name and len(name) <= 20 else "💌 Отправить получателю"
     kb = types.InlineKeyboardMarkup(row_width=1)
-    kb.add(types.InlineKeyboardButton(label, url=occ_share_url(order)))
+    kb.add(types.InlineKeyboardButton(
+        label, web_app=types.WebAppInfo(url=f"{site_pages.SITE_URL}/share/{occ_gift_code(order)}")))
     kb.add(types.InlineKeyboardButton("⋯ Другие способы", callback_data=f"gift:more:{order['order_id']}"))
     kb.add(partners.friend_gift_markup(order["chat_id"]))
     kb.add(types.InlineKeyboardButton("🎀 Ещё одно письмо с открыткой", callback_data="occ:catalog"))
@@ -2509,7 +2511,7 @@ def occ_inline_send(query):
 
 
 def occ_gift_teaser(order):
-    who = order.get("sign") or "близкого человека"
+    who = envelope_pages.from_whom(order)
     name = (order.get("gift_for") or "").strip()
     return ((f"💌 {name}, тебе письмо от {who}" if name else f"💌 Тебе письмо от {who}")
             + "\nВнутри — несколько слов, написанных специально для тебя.")
@@ -2535,6 +2537,7 @@ def occ_more_ways(call):
         "💬 Выбрать чат через бота (открытка, письмо или ссылка)",
         switch_inline_query_chosen_chat=types.SwitchInlineQueryChosenChat(
             query=f"card_{occ_gift_code(order)}", allow_user_chats=True, allow_group_chats=True)))
+    kb.add(types.InlineKeyboardButton("📤 Отправить обычной ссылкой", url=occ_share_url(order)))
     kb.add(types.InlineKeyboardButton("📨 Готовые сообщения — переслать самой", callback_data=f"gift:fwd:{order['order_id']}"))
     bot.send_message(
         chat_id,
@@ -2581,7 +2584,7 @@ def occ_gift_start(chat_id, code):
         bot.send_message(chat_id, "Конверт не найден 😔 Возможно, ссылка скопирована не полностью.",
                          reply_markup=kb_client())
         return
-    who = order.get("sign") or "близкого человека"
+    who = envelope_pages.from_whom(order)
     name = order.get("gift_for") or ""
     kb = types.InlineKeyboardMarkup()
     kb.add(types.InlineKeyboardButton("✉️ Вскрыть конверт", callback_data=f"env:open:{code}"))
@@ -3898,6 +3901,8 @@ def index():
 
 import site_pages  # noqa: E402  сайт «Письма Алисы» на том же Flask
 site_pages.register(app, DATA_DIR)
+import miniapp_share  # noqa: E402  отправка в один тап через мини-приложение Telegram
+miniapp_share.register(app, sys.modules[__name__])
 
 
 # Ключ для /stats выводится из токена бота: локальный отчёт считает его так же,
@@ -3928,20 +3933,7 @@ def envelope_closed(code):
     order = envelope_order(code)
     if not order:
         return envelope_html("Конверт не найден", "<h2>Конверт не найден 😔</h2><p>Возможно, ссылка скопирована не полностью.</p>"), 404
-    name, who = order.get("gift_for") or "", order.get("sign") or "близкого человека"
-    title = f"💌 {name}, тебе письмо от {who}" if name else f"💌 Тебе письмо от {who}"
-    base = site_pages.SITE_URL
-    desc = "Внутри — открытка и несколько слов, написанных специально для тебя."
-    head = (f'<meta property="og:type" content="website"><meta property="og:title" content="{esc(title)}">'
-            f'<meta property="og:description" content="{esc(desc)}">'
-            f'<meta property="og:image" content="{base}/e/{esc(code)}.jpg">'
-            f'<meta property="og:url" content="{base}/e/{esc(code)}"><meta name="twitter:card" content="summary_large_image">')
-    return envelope_html("Тебе письмо 💌",
-                         f'<h1>💌 {esc(name) + ", тебе" if name else "Тебе"} письмо</h1>'
-                         f'<p>От <b>{esc(who)}</b>. {desc}</p>'
-                         f'<a class="b" href="/e/{esc(code)}/open">✉️ Вскрыть конверт</a>'
-                         f'<p class="f">Есть Telegram? <a href="https://t.me/{BOT_USERNAME}?start=g_{esc(code)}">'
-                         'Открыть письмо там</a></p>', head)
+    return envelope_pages.closed_html(order, code, site_pages.SITE_URL, BOT_USERNAME)
 
 
 @app.route("/e/<code>/open", methods=["GET"])
@@ -3964,12 +3956,27 @@ def envelope_open(code):
                                  parse_mode="HTML")
         except Exception as exc:
             log.error("envelope notify %s: %s", order["order_id"], exc)
-    return envelope_html("Письмо 💌",
-                         f'<img src="/e/{esc(code)}.jpg" alt="Открытка"><div class="l">{esc(order.get("letter_text", ""))}</div>'
-                         '<div class="f">Это письмо собрала Алиса Невская — цифровая героиня проекта «Когда трудно сказать '
-                         'важное — здесь находятся слова». Захочется ответить так же — '
-                         f'<a href="https://vk.me/alisanevskaya_diary">напиши Алисе во ВКонтакте</a> или '
-                         f'<a href="https://t.me/{BOT_USERNAME}?start=occ">в Telegram</a>.</div>')
+    spec = postcards.parse_spec(order.get("card_ref"))
+    animated = bool(spec and spec.get("anim", "none") != "none")
+    return envelope_pages.open_html(order, code, animated, BOT_USERNAME)
+
+
+@app.route("/e/<code>.gif", methods=["GET"])
+def envelope_gif(code):
+    """Живая открытка для страницы вскрытия. GIF собирается один раз и кэшируется на диске."""
+    order = envelope_order(code)
+    spec = postcards.parse_spec((order or {}).get("card_ref"))
+    if not order or not spec or spec.get("anim", "none") == "none":
+        return "", 404
+    path = os.path.join(DATA_DIR, "anim_cache", f"{order['order_id']}.gif")
+    if not os.path.exists(path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        gif = cardanim.animate(order["product"], order.get("card_title", ""), order.get("card_line", ""),
+                               order.get("sign", ""), order["card_ref"])
+        with open(path, "wb") as f:
+            f.write(gif)
+    with open(path, "rb") as f:
+        return f.read(), 200, {"Content-Type": "image/gif", "Cache-Control": "private, max-age=86400"}
 
 
 @app.route("/e/<code>.jpg", methods=["GET"])

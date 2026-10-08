@@ -58,7 +58,7 @@ res = inline()
 kinds = [type(r).__name__ for r in res]
 assert kinds == ["InlineQueryResultCachedPhoto", "InlineQueryResultArticle", "InlineQueryResultArticle"], kinds
 link = B.occ_gift_link(order)
-assert link in res[0].caption and "Катя, тебе письмо от Серёжа" in res[0].caption
+assert link in res[0].caption and "Катя, тебе письмо от Серёжи" in res[0].caption
 assert res[1].title == "📝 Письмо текстом" and "ты для меня самый близкий" in res[1].input_message_content.message_text
 assert link in res[2].input_message_content.message_text
 assert len({r.id for r in res}) == 3, "id результатов уникальны"
@@ -106,11 +106,13 @@ for s_ in SENT:
 assert kb is not None
 first = kb.keyboard[0][0]
 assert first.text == "💌 Отправить Катя"
-assert first.url.startswith("https://t.me/share/url?url=")
+assert first.web_app.url == f"{B.site_pages.SITE_URL}/share/{code}", "главная кнопка — мини-приложение отправки"
+share = B.occ_share_url(order)   # запасная ссылка «поделиться» живёт в «Других способах»
+assert share.startswith("https://t.me/share/url?url=")
 import urllib.parse as up  # noqa: E402
-qs = up.parse_qs(up.urlparse(first.url).query)
+qs = up.parse_qs(up.urlparse(share).query)
 assert qs["url"][0] == B.occ_web_envelope(order) and "/e/" in qs["url"][0]
-assert "Катя, тебе письмо от Серёжа" in qs["text"][0]
+assert "Катя, тебе письмо от Серёжи" in qs["text"][0]
 assert "gift:more:" + order["order_id"] in [getattr(b, "callback_data", None) for row in kb.keyboard for b in row]
 
 # превью ссылки: на странице конверта og:image именно этой открытки; для Telegram-получателя есть кнопка в бота
@@ -118,8 +120,8 @@ page = B.app.test_client().get(f"/e/{code}")
 html = page.get_data(as_text=True)
 assert page.status_code == 200
 assert f'property="og:image" content="{B.site_pages.SITE_URL}/e/{code}.jpg"' in html
-assert 'property="og:title" content="💌 Катя, тебе письмо от Серёжа"' in html
-assert f"start=g_{code}" in html and "Вскрыть конверт" in html
+assert 'property="og:title" content="💌 Катя, тебе письмо от Серёжи"' in html
+assert f"start=g_{code}" in html and "Вскрыть письмо от Серёжи" in html
 img = B.app.test_client().get(f"/e/{code}.jpg")
 assert img.status_code == 200 and img.mimetype == "image/jpeg" and len(img.data) > 10000
 assert order.get("opened_at") is None and not B.get_order(order["order_id"]).get("opened_at"),     "превью ссылки не считается вскрытием"

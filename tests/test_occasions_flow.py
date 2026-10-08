@@ -87,11 +87,16 @@ order = B.get_order(order_id)
 assert order["status"] == "done" and order.get("gift_code"), order
 def _urls(s):
     mk = s[2].get("reply_markup")
-    return [getattr(b, "url", "") or "" for row in getattr(mk, "keyboard", []) for b in row]
+    out = []
+    for row in getattr(mk, "keyboard", []):
+        for b in row:
+            out.append(getattr(b, "url", "") or "")
+            out.append(getattr(getattr(b, "web_app", None), "url", "") or "")
+    return out
 
 
-assert any(s[0] == "send_message" and s[1][0] == 500 and any("t.me/share/url" in u and "%2Fe%2F" + order["gift_code"] in u
-                                                          for u in _urls(s)) for s in SENT), "кнопка «Отправить» ведёт на конверт"
+assert any(s[0] == "send_message" and s[1][0] == 500 and any("/share/" + order["gift_code"] in u for u in _urls(s))
+           for s in SENT), "кнопка «Отправить» открывает мини-приложение отправки этого письма"
 
 # получатель вскрывает конверт
 B.cmd_start(msg("/start g_" + order["gift_code"], chat=777))
