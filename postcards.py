@@ -66,9 +66,43 @@ def _fit(draw, text, fname, variation, start, minimum, max_w, max_lines):
 
 
 def split_ref(card_ref):
-    """'birthday-001~3' -> ('birthday-001', 3); без ~ seed = 0."""
+    """'birthday-001~3' -> ('birthday-001', 3); без ~ seed = 0. Ссылка конструктора 'base!spec' -> ('base', 0)."""
     base, _, seed = (card_ref or "").partition("~")
+    base = base.partition("!")[0]
     return base, int(seed) if seed.isdigit() else 0
+
+
+# ── конструктор: фон + палитра + реквизит + раскладка + рамка ───────────────
+LAYOUTS = ["corners", "left", "right", "top", "bottom"]
+FRAMES = ["none", "thin", "double"]
+MAX_PROPS = 3
+
+
+ANIMS = ["none", "sparkle", "petals", "snow", "bokeh"]
+
+
+def encode_spec(base, pal="none", props=(), lay="corners", frame="none", anim="none"):
+    """Ссылка на картинку, собранную в конструкторе: '<фон>!<палитра>.<реквизит+реквизит>.<раскладка>.<рамка>[.<анимация>]'.
+    Пятое поле есть только у анимированных открыток — прежние ссылки остаются прежними."""
+    ref = f"{base}!{pal}.{'+'.join(props) or '-'}.{lay}.{frame}"
+    return ref + f".{anim}" if anim and anim != "none" else ref
+
+
+def parse_spec(card_ref):
+    """'birthday-001!warm.ribbon_bow+tea_cup.left.thin.snow' -> dict либо None, если это не ссылка конструктора."""
+    base, bang, spec = (card_ref or "").partition("!")
+    if not bang:
+        return None
+    base = base.partition("~")[0]
+    parts = spec.split(".")
+    if len(parts) not in (4, 5):
+        return None
+    pal, props, lay, frame = parts[:4]
+    anim = parts[4] if len(parts) == 5 else "none"
+    props = [x for x in props.split("+") if x in PROP_FILES][:MAX_PROPS]
+    return {"base": base, "pal": pal if pal in GRADES else "none", "props": props,
+            "lay": lay if lay in LAYOUTS else "corners", "frame": frame if frame in FRAMES else "none",
+            "anim": anim if anim in ANIMS else "none"}
 
 
 def bg_path(card_id):
@@ -139,8 +173,56 @@ def compose(photo, seed):
     return photo
 
 
+def _paste_prop(photo, name, cx, cy, h, rot):
+    path = os.path.join(PROPS, name + ".png")
+    if not os.path.exists(path):
+        return
+    prop = Image.open(path).convert("RGBA")
+    prop = prop.resize((round(prop.width * h / prop.height), h), Image.LANCZOS)
+    prop = prop.rotate(rot, resample=Image.BICUBIC, expand=True)
+    shadow = Image.new("RGBA", prop.size, (0, 0, 0, 0))
+    shadow.putalpha(prop.getchannel("A").point(lambda a: int(a * 0.35)))
+    shadow = shadow.filter(ImageFilter.GaussianBlur(10))
+    x, y = round(cx - prop.width / 2), round(cy - prop.height / 2)
+    photo.paste(shadow, (x + 8, y + 12), shadow)
+    photo.paste(prop, (x, y), prop)
+
+
+def _spread(n, lo, hi):
+    if n == 1:
+        return [(lo + hi) // 2]
+    return [round(lo + (hi - lo) * i / (n - 1)) for i in range(n)]
+
+
+def compose_custom(photo, spec):
+    """Фон, собранный клиентом: палитра, до трёх предметов реквизита, раскладка, рамка. Детерминированно по spec."""
+    rnd = random.Random("alisa-custom-" + encode_spec(spec["base"], spec["pal"], spec["props"], spec["lay"], spec["frame"]))  # анимация картинку не меняет
+    photo = _grade(photo, spec["pal"])
+    props, lay, n = spec["props"], spec["lay"], len(spec["props"])
+    if n and lay == "corners":
+        for name, corner in zip(props, ["bl", "tr", "br", "tl"]):
+            _place_prop(photo, name, corner, rnd)
+    elif n:
+        h = 230
+        if lay in ("left", "right"):
+            x = 140 if lay == "left" else W - 140
+            for name, y in zip(props, _spread(n, 190, 520)):
+                _paste_prop(photo, name, x + rnd.randint(-15, 15), y, h, rnd.randint(-25, 25))
+        else:
+            y = 170 if lay == "top" else PHOTO_H - 250
+            for name, x in zip(props, _spread(n, 220, W - 220)):
+                _paste_prop(photo, name, x, y + rnd.randint(-15, 15), h - 20, rnd.randint(-25, 25))
+    if spec["frame"] != "none":
+        d = ImageDraw.Draw(photo)
+        d.rectangle([22, 22, W - 23, PHOTO_H - 1], outline=PAPER, width=10)
+        if spec["frame"] == "double":
+            d.rectangle([48, 48, W - 49, PHOTO_H - 1], outline=(217, 195, 160), width=2)
+    return photo
+
+
 def _background(product_key, card_ref=None):
-    base, seed = split_ref(card_ref or first_ref(product_key))
+    ref = card_ref or first_ref(product_key)
+    base, seed = split_ref(ref)
     path = bg_path(base) if base else ""
     if not os.path.exists(path):
         return Image.new("RGB", (W, PHOTO_H), (200, 180, 160))
@@ -150,6 +232,9 @@ def _background(product_key, card_ref=None):
     x = (im.width - W) // 2
     y = (im.height - PHOTO_H) // 2
     im = im.crop((x, y, x + W, y + PHOTO_H))
+    spec = parse_spec(ref)
+    if spec:
+        return compose_custom(im, spec)
     return compose(im, f"{base}~{seed}") if seed else im
 
 

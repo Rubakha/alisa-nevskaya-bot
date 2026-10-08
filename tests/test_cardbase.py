@@ -143,7 +143,7 @@ B.occ_answer(msg("Серёжа"))
 
 st = B.STATES[500]
 assert st["step"] == "occ_paywall" and st["card_ref"] and st["card_seen"] == [st["card_ref"]]
-assert cbs(kinds("send_photo")[-1][2]["reply_markup"]) == ["occ:pc:next"]
+assert cbs(kinds("send_photo")[-1][2]["reply_markup"]) == ["occ:pc:next", "cc:open"]
 text_msg = kinds("send_message")[-1]
 shown = text_msg[1][1]
 assert "▒" in shown and "ВТОРАЯ_ПОЛОВИНА_СЕКРЕТ" not in shown and "Первая половина" in shown, shown
@@ -183,7 +183,8 @@ assert B.get_order(oid)["status"] == "done"
 rep = cardbase.report(1)
 assert rep["buy"] == 1 and rep["paid"] == 1 and rep["conversion"] == 100.0, rep
 later = []
-for _ in range(1 + cardbase.VARIANTS):
+_n = len(cardbase.active_ids("birthday"))
+for _ in range(_n * (1 + cardbase.VARIANTS)):
     later.append(cardbase.pick_ref(500, "birthday", later))
 assert later[-1] == ref and ref not in later[:-1], "оплаченная картинка — последняя в очереди"
 

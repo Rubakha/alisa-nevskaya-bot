@@ -6,6 +6,7 @@
 
 import os
 import hashlib
+import io
 import html
 import json
 import logging
@@ -25,7 +26,9 @@ from telebot import TeleBot, types
 from telebot.types import LabeledPrice, Update
 
 import calendar_reminders
+import cardanim
 import cardbase
+import constructor
 import group_letters
 import occasions as OCC
 import partners
@@ -1985,9 +1988,13 @@ def occ_preview_text(state):
             + (f"\n\n{lines}" if lines else ""))
 
 
+PHOTO_CAPTION = "Твоя открытка (превью) 🖼 Не нравится картинка — выбери другую или собери сама, это бесплатно."
+
+
 def occ_photo_markup():
     kb = types.InlineKeyboardMarkup(row_width=1)
     kb.add(types.InlineKeyboardButton("🖼 Другая картинка", callback_data="occ:pc:next"))
+    kb.add(types.InlineKeyboardButton("🎨 Настроить открытку", callback_data="cc:open"))
     return kb
 
 
@@ -2000,7 +2007,7 @@ def occ_send_preview(chat_id, state):
     state["chat_id"] = chat_id
     try:
         msg = bot.send_photo(chat_id, occ_preview_image(state),
-                             caption="Твоя открытка (превью) 🖼 Не нравится картинка — выбери другую, это бесплатно.",
+                             caption=PHOTO_CAPTION,
                              reply_markup=occ_photo_markup())
         state["photo_msg"] = msg.message_id
     except Exception as exc:
@@ -2015,7 +2022,7 @@ def occ_refresh_photo(chat_id, state):
     try:
         bot.edit_message_media(
             types.InputMediaPhoto(occ_preview_image(state),
-                                  caption="Твоя открытка (превью) 🖼 Не нравится картинка — выбери другую, это бесплатно."),
+                                  caption=PHOTO_CAPTION),
             chat_id, state["photo_msg"], reply_markup=occ_photo_markup())
     except Exception as exc:
         log.error("preview photo refresh: %s", exc)
@@ -2041,6 +2048,7 @@ def occ_pc_next(call):
         bot.answer_callback_query(call.id, "Других картинок пока нет")
         return
     state["card_ref"] = ref
+    state.pop("cc", None)  # свой набор конструктора сменяется выбранной готовой картинкой
     state.setdefault("card_seen", []).append(ref)
     state["photo_msg"] = call.message.message_id
     bot.answer_callback_query(call.id)
@@ -2354,6 +2362,7 @@ def cmd_card_stats(message):
         f"Нажали «Оплатить»: {r['buy']}\n"
         f"Оплачено: {r['paid']} (конверсия {r['conversion']}%)\n"
         f"«Другая картинка»: {r['pc_next']}\n"
+        f"Конструктор: открыли {r['cc_open']}, закончили {r['cc_done']}, оплатили со своей картинкой {r['cc_paid']}\n"
         f"Перегенераций текста: {r['retext']} + по пожеланию {r['retext_wish']}\n\n"
         f"Фоны в базе: активных {st.get('active', 0)}, на проверке {st.get('review', 0)}, "
         f"убрано {st.get('retired', 0)}\n\nЛучшие фоны:\n{top}",
@@ -2419,6 +2428,19 @@ def occ_deliver(chat_id, order):
         save_order(order)
     except Exception as exc:
         log.error("postcard deliver failed %s: %s", order["order_id"], exc)
+    spec = postcards.parse_spec(order.get("card_ref"))
+    if spec and spec.get("anim", "none") != "none":  # живая открытка: GIF рядом со статичной
+        try:
+            gif = io.BytesIO(cardanim.animate(order["product"], order.get("card_title", ""),
+                                              order.get("card_line", ""), order.get("sign", ""), order["card_ref"]))
+            gif.name = "card.gif"
+            msg = bot.send_animation(chat_id, gif, caption="✨ Живая открытка")
+            anim = getattr(msg, "animation", None) or getattr(msg, "document", None)
+            if anim:
+                order["card_anim_file_id"] = anim.file_id  # для inline-отправки получателю
+                save_order(order)
+        except Exception as exc:
+            log.error("postcard gif failed %s: %s", order["order_id"], exc)
     rate_kb = types.InlineKeyboardMarkup(row_width=5)
     rate_kb.row(*[types.InlineKeyboardButton("⭐" * i, callback_data=f"rate:{order['order_id']}:{i}")
                   for i in range(1, 6)])
@@ -2472,7 +2494,10 @@ def occ_inline_send(query):
     kb = types.InlineKeyboardMarkup()
     kb.add(types.InlineKeyboardButton("Открыть письмо 💌", url=occ_gift_link(order)))
     file_id = order.get("card_file_id")
-    if file_id:
+    if order.get("card_anim_file_id"):  # у живой открытки получатель видит анимацию
+        result = types.InlineQueryResultCachedGif(
+            id=code, gif_file_id=order["card_anim_file_id"], caption=teaser, reply_markup=kb)
+    elif file_id:
         result = types.InlineQueryResultCachedPhoto(
             id=code, photo_file_id=file_id, caption=teaser, reply_markup=kb)
     else:
@@ -3766,6 +3791,7 @@ def start_autobackup():
 
 
 group_letters.register(sys.modules[__name__])  # до fallback: его обработчик ловит любой текст
+constructor.register(sys.modules[__name__])
 calendar_reminders.register(sys.modules[__name__])
 partners.register(sys.modules[__name__])
 sources.register(sys.modules[__name__])

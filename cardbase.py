@@ -180,16 +180,19 @@ def report(days=30):
         per_card = {}
         for r in c.execute("SELECT name, card_ref FROM events WHERE ts>=? AND card_ref IS NOT NULL "
                            "AND name IN ('preview','buy','paid')", (since,)):
-            base = r["card_ref"].split("~")[0]
+            base = r["card_ref"].split("~")[0].split("!")[0]
             d = per_card.setdefault(base, {"preview": 0, "buy": 0, "paid": 0})
             d[r["name"]] += 1
         statuses = {r["status"]: r["n"] for r in c.execute("SELECT status, COUNT(*) n FROM cards GROUP BY status")}
+        custom_paid = c.execute("SELECT COUNT(*) n FROM events WHERE name='paid' AND ts>=? AND card_ref LIKE '%!%'",
+                                (since,)).fetchone()["n"]
     top = sorted(per_card.items(), key=lambda kv: (-kv[1]["paid"], -kv[1]["buy"], -kv[1]["preview"]))[:5]
     return {
         "days": days, "previews": previews, "paid": counts.get("paid", 0), "buy": counts.get("buy", 0),
         "conversion": round(100 * counts.get("paid", 0) / previews, 1) if previews else 0.0,
         "pc_next": counts.get("pc_next", 0), "retext": counts.get("retext", 0),
         "retext_wish": counts.get("retext_wish", 0), "statuses": statuses, "top": top,
+        "cc_open": counts.get("cc_open", 0), "cc_done": counts.get("cc_done", 0), "cc_paid": custom_paid,
     }
 
 

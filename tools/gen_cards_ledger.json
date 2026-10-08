@@ -343,6 +343,118 @@
    "card_id": "sample",
    "usd": 0.008,
    "rub": 0.72
+  },
+  {
+   "ts": "2026-10-08T11:27:21",
+   "model": "flux2",
+   "occasion": "birthday",
+   "card_id": "sample",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-08T11:27:29",
+   "model": "flux2",
+   "occasion": "love",
+   "card_id": "sample",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-08T11:27:37",
+   "model": "flux2",
+   "occasion": "friend",
+   "card_id": "sample",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-08T11:27:45",
+   "model": "flux2",
+   "occasion": "family",
+   "card_id": "sample",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-08T11:27:53",
+   "model": "flux2",
+   "occasion": "thanks",
+   "card_id": "sample",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-08T11:28:01",
+   "model": "flux2",
+   "occasion": "sorry",
+   "card_id": "sample",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-08T11:28:09",
+   "model": "flux2",
+   "occasion": "support",
+   "card_id": "sample",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-08T11:28:17",
+   "model": "flux2",
+   "occasion": "toast",
+   "card_id": "sample",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-08T11:28:25",
+   "model": "flux2",
+   "occasion": "newyear",
+   "card_id": "sample",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-08T11:28:33",
+   "model": "flux2",
+   "occasion": "santa",
+   "card_id": "sample",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-08T11:35:34",
+   "model": "flux2",
+   "occasion": "birthday_a",
+   "card_id": "sample",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-08T11:35:41",
+   "model": "flux2",
+   "occasion": "birthday_b",
+   "card_id": "sample",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-08T11:35:49",
+   "model": "flux2",
+   "occasion": "birthday_c",
+   "card_id": "sample",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-08T11:40:33",
+   "model": "flux2",
+   "occasion": "thanks",
+   "card_id": "sample",
+   "usd": 0.008,
+   "rub": 0.72
   }
  ]
 }
