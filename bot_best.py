@@ -1932,7 +1932,7 @@ def occ_masked_preview(letter):
 
 def occ_preview_markup(state):
     p = OCC.PRODUCTS[state["product"]]
-    credits = 0 if state.get("group") else (get_client(state.get("chat_id", 0)) or {}).get("credits", 0)
+    credits = 0 if state.get("group") or state.get("voice") else (get_client(state.get("chat_id", 0)) or {}).get("credits", 0)
     kb = types.InlineKeyboardMarkup(row_width=1)
     if credits:
         kb.add(types.InlineKeyboardButton(f"🎁 Забрать по набору (осталось {credits})",
@@ -1940,6 +1940,7 @@ def occ_preview_markup(state):
     q = partners.quote(state.get("chat_id", 0), price_base(state), state.get("promo"))
     kb.add(types.InlineKeyboardButton(f"💳 Оплатить — {partners.button_price(q)}", callback_data="occ:buy"))
     kb.add(types.InlineKeyboardButton("🎟 Есть промокод", callback_data="pr:enter"))
+    voice_flow.add_preview_toggle(kb, state)
     left = max(0, FREE_RETEXTS - state.get("retexts", 0))
     label = f"✏️ Изменить текст (ещё {left})" if left else "✏️ Изменить текст — по твоему пожеланию"
     if left == 0 and state.get("wish_used"):
@@ -2159,7 +2160,7 @@ def occ_credit(call):
     state = STATES.get(chat_id) or {}
     profile = get_client(chat_id) or {}
     bot.answer_callback_query(call.id)
-    if state.get("step") != "occ_paywall" or profile.get("credits", 0) < 1 or state.get("group"):
+    if state.get("step") != "occ_paywall" or profile.get("credits", 0) < 1 or state.get("group") or state.get("voice"):
         safe_edit(call, f"Не получилось — начни заново: «{OCC_BUTTON}».")
         return
     profile["credits"] -= 1

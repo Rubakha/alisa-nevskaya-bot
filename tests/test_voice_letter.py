@@ -258,4 +258,43 @@ if shutil.which("ffmpeg"):
     print("OK: ffmpeg-микс")
 else:
     print("SKIP: ffmpeg не установлен")
+
+# ── 9. переключатель озвучки на превью ───────────────────────
+VL.mix = lambda voice_mp3, music=None: (b"OggS-fake", voice_mp3)
+B.STATES.pop(500, None)
+write_letter()
+st = B.STATES[500]
+kb = B.occ_preview_markup(st)
+assert "🎙 Озвучить голосом — +191₽" in [b.text for b in buttons(kb)], [b.text for b in buttons(kb)]
+SENT.clear()
+VF._preview_toggle(call("vo:pv:on"))                 # два голоса — спрашивает
+assert "голосом" in calls("send_message")[-1][1][1] and not st.get("voice")
+VF._preview_toggle(call("vo:pv:on:m"))
+assert st["voice"] and st["price"] == 390 and st["voice_gender"] == "m"
+assert calls("edit_message_text"), "превью не перерисовано"
+kb = B.occ_preview_markup(st)
+texts = [b.text for b in buttons(kb)]
+assert any("390" in t for t in texts) and "🎙 Озвучка включена · убрать" in texts, texts
+VF._preview_toggle(call("vo:pv:off"))
+assert not st.get("voice") and not st.get("price")
+VF._preview_toggle(call("vo:pv:on:f"))
+B.occ_buy(call("occ:buy"))
+inv = calls("send_invoice")[-1][2]
+assert inv["prices"][0].amount == 390 * 100
+pid = inv["invoice_payload"]
+n = len(TTS_CALLS)
+pay(pid)
+assert len(TTS_CALLS) == n + 1 and TTS_CALLS[-1]["url"].endswith("/voice-f") and B.get_order(pid)["voice_status"] == "done"
+# при включённой озвучке «забрать по набору» не показывается
+B.STATES.pop(500, None)
+write_letter()
+c = B.get_client(500); c["credits"] = 2; B.write_json(B.client_path(500), c)
+VF._preview_toggle(call("vo:pv:on:f"))
+assert not any(b.callback_data == "occ:credit" for b in buttons(B.occ_preview_markup(B.STATES[500])))
+SENT.clear(); B.occ_credit(call("occ:credit"))
+assert B.get_client(500)["credits"] == 2, "набор списан под озвучку"
+os.environ.pop("ELEVENLABS_API_KEY")                 # без ключа кнопки нет
+assert not any("vo:pv" in (b.callback_data or "") for b in buttons(B.occ_preview_markup(B.STATES[500])))
+os.environ["ELEVENLABS_API_KEY"] = "test-key"
+print("OK: озвучка на превью")
 print("OK: all voice letter checks passed")

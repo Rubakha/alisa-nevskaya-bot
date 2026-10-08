@@ -149,6 +149,51 @@ def _upsell(call):
         B.notify_admin_new_order(addon)
 
 
+# ── переключатель озвучки на экране превью ───────────────────
+
+def add_preview_toggle(kb, state):
+    """Кнопка на превью: включить озвучку (+N ₽) или вернуть обычное письмо."""
+    if not VL.enabled() or state.get("group") or state.get("product") not in B.OCC.PRODUCTS:
+        return
+    extra = VL.surcharge(B.OCC.PRODUCTS[state["product"]]["price"])
+    if state.get("voice"):
+        kb.add(types.InlineKeyboardButton("🎙 Озвучка включена · убрать", callback_data="vo:pv:off"))
+    elif extra > 0:
+        kb.add(types.InlineKeyboardButton(f"🎙 Озвучить голосом — +{extra}₽", callback_data="vo:pv:on"))
+
+
+def _preview_toggle(call):
+    """vo:pv:on[:<голос>] / vo:pv:off — меняет цену и флаг озвучки в состоянии, перерисовывает превью."""
+    chat_id = call.message.chat.id
+    state = B.STATES.get(chat_id) or {}
+    parts = call.data.split(":")
+    B.bot.answer_callback_query(call.id)
+    if (not VL.enabled() or state.get("step") != "occ_paywall" or state.get("group")
+            or state.get("product") not in B.OCC.PRODUCTS):
+        return
+    if parts[2] == "off":
+        if state.get("voice"):
+            state.pop("voice", None)
+            state.pop("voice_gender", None)
+            if state.get("price_before_voice"):
+                state["price"] = state.pop("price_before_voice")
+            else:
+                state.pop("price", None)
+    elif not state.get("voice"):
+        gender = parts[3] if len(parts) > 3 else None
+        if gender not in VL.genders():
+            gs = VL.genders()
+            if len(gs) != 1:
+                B.bot.send_message(chat_id, "Каким голосом прочитать письмо? 🎙",
+                                   reply_markup=_gender_markup("vo:pv:on"))
+                return
+            gender = gs[0]
+        if state.get("price"):
+            state["price_before_voice"] = state["price"]
+        state.update(voice=True, voice_gender=gender, price=VL.price())
+    B.occ_refresh_text(chat_id, state)
+
+
 def fulfill_addon(chat_id, addon):
     """Вызывается из fulfill_order, когда оплачена доплата за озвучку."""
     parent = B.get_order(addon.get("voice_for")) or {}
@@ -280,5 +325,6 @@ def register(bot_module):
     bot.callback_query_handler(func=lambda c: c.data == "vo:menu")(_menu)
     bot.callback_query_handler(func=lambda c: c.data.startswith("vo:go:"))(_go)
     bot.callback_query_handler(func=lambda c: c.data.startswith("vo:up:"))(_upsell)
+    bot.callback_query_handler(func=lambda c: c.data.startswith("vo:pv:"))(_preview_toggle)
     bot.inline_handler(func=lambda q: (q.query or "").startswith("voice_"))(inline_send)
     bot.message_handler(commands=["voice_retry"])(_retry)
