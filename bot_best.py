@@ -2527,10 +2527,12 @@ def occ_deliver(chat_id, order):
         log.error("calendar offer: %s", exc)
 
 
-@bot.inline_handler(func=lambda q: (q.query or "").startswith("card_"))
+@bot.inline_handler(func=lambda q: (q.query or "").startswith(("card_", "alt_")))
 def occ_inline_send(query):
-    """Автор открытки отправляет её в чат получателя в один тап."""
-    code = query.query[len("card_"):].strip()
+    """Автор открытки отправляет её в чат получателя. card_<код> — в списке одна открытка (один тап);
+    alt_<код> — запасные варианты: письмо текстом и ссылка."""
+    alt = query.query.startswith("alt_")
+    code = query.query.split("_", 1)[1].strip()
     ref = read_json(gift_path(code), None) if code.isalnum() else None
     order = get_order(ref["order_id"]) if ref else None
     if not order or order.get("status") != "done" or order.get("chat_id") != query.from_user.id:
@@ -2544,12 +2546,19 @@ def occ_inline_send(query):
     results = []
     file_id = order.get("card_file_id")
     # открытка (или GIF) — только картинка и кнопка «Вскрыть письмо от …», без подписи и ссылок
-    if order.get("card_anim_file_id"):
-        results.append(types.InlineQueryResultCachedGif(
-            id=code, gif_file_id=order["card_anim_file_id"], reply_markup=kb))
-    elif file_id:
-        results.append(types.InlineQueryResultCachedPhoto(
-            id=code, photo_file_id=file_id, reply_markup=kb))
+    if not alt:
+        if order.get("card_anim_file_id"):
+            results.append(types.InlineQueryResultCachedGif(
+                id=code, gif_file_id=order["card_anim_file_id"], reply_markup=kb))
+        elif file_id:
+            results.append(types.InlineQueryResultCachedPhoto(
+                id=code, photo_file_id=file_id, reply_markup=kb))
+        else:
+            results.append(types.InlineQueryResultArticle(
+                id=code, title="💌 Письмо с открыткой",
+                input_message_content=types.InputTextMessageContent(message_text=teaser), reply_markup=kb))
+        bot.answer_inline_query(query.id, results, cache_time=0, is_personal=True)
+        return
     letter = (order.get("letter_text") or "").strip()
     if letter:  # письмо целиком текстом — для тех, кому нужен сам текст, а не конверт
         full = f"{teaser}\n\n{letter}"
@@ -2588,9 +2597,13 @@ def occ_more_ways(call):
     bot.answer_callback_query(call.id)
     kb = types.InlineKeyboardMarkup(row_width=1)
     kb.add(types.InlineKeyboardButton(
-        "💬 Выбрать чат через бота (открытка, письмо или ссылка)",
+        "💬 Отправить открытку через чат",
         switch_inline_query_chosen_chat=types.SwitchInlineQueryChosenChat(
             query=f"card_{occ_gift_code(order)}", allow_user_chats=True, allow_group_chats=True)))
+    kb.add(types.InlineKeyboardButton(
+        "📝 Письмо текстом или ссылка (через чат)",
+        switch_inline_query_chosen_chat=types.SwitchInlineQueryChosenChat(
+            query=f"alt_{occ_gift_code(order)}", allow_user_chats=True, allow_group_chats=True)))
     kb.add(types.InlineKeyboardButton("📤 Отправить обычной ссылкой", url=occ_share_url(order)))
     kb.add(types.InlineKeyboardButton("📨 Готовые сообщения — переслать самой", callback_data=f"gift:fwd:{order['order_id']}"))
     bot.send_message(

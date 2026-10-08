@@ -48,31 +48,36 @@ B.save_order(order)
 code = B.occ_gift_code(order)
 
 
-def inline(chat=500):
+def inline(chat=500, prefix="card_"):
     SENT.clear()
-    B.occ_inline_send(pytypes.SimpleNamespace(id="q", query="card_" + code, from_user=user(chat)))
+    B.occ_inline_send(pytypes.SimpleNamespace(id="q", query=prefix + code, from_user=user(chat)))
     return [s for s in SENT if s[0] == "answer_inline_query"][-1][1][1]
 
 
 res = inline()
 kinds = [type(r).__name__ for r in res]
-assert kinds == ["InlineQueryResultCachedPhoto", "InlineQueryResultArticle", "InlineQueryResultArticle"], kinds
+assert kinds == ["InlineQueryResultCachedPhoto"], "в списке одна открытка — никакого выбора, один тап"
 link = B.occ_gift_link(order)   # по умолчанию кнопка получателя открывает конверт в Telegram
 assert getattr(res[0], "caption", None) is None, "открытка уходит без подписи и ссылок — только картинка и кнопка"
 assert res[0].reply_markup.keyboard[0][0].text == "💌 Вскрыть письмо от Серёжи"
-assert res[1].title == "📝 Письмо текстом" and "ты для меня самый близкий" in res[1].input_message_content.message_text
-assert link in res[2].input_message_content.message_text
-assert len({r.id for r in res}) == 3, "id результатов уникальны"
-assert all(r.reply_markup.keyboard[0][0].url == link for r in res)
+assert res[0].reply_markup.keyboard[0][0].url == link
+
+# запасные варианты — отдельным запросом alt_
+alt = inline(prefix="alt_")
+assert [type(r).__name__ for r in alt] == ["InlineQueryResultArticle", "InlineQueryResultArticle"]
+assert alt[0].title == "📝 Письмо текстом" and "ты для меня самый близкий" in alt[0].input_message_content.message_text
+assert link in alt[1].input_message_content.message_text
+assert len({r.id for r in res + alt}) == 3, "id результатов уникальны"
+assert all(r.reply_markup.keyboard[0][0].url == link for r in alt)
 
 # слишком длинное письмо — режем и оставляем ссылку
 order["letter_text"] = "слово " * 1500
 B.save_order(order)
-text = inline()[1].input_message_content.message_text
+text = inline(prefix="alt_")[0].input_message_content.message_text
 assert len(text) <= 4096 and link in text
 
 # чужой человек получает пустой ответ
-assert inline(chat=999) == []
+assert inline(chat=999) == [] and inline(chat=999, prefix="alt_") == []
 
 # живая открытка — первой идёт анимация
 order["card_anim_file_id"] = "AN"
