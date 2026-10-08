@@ -143,7 +143,7 @@ B.occ_answer(msg("Серёжа"))
 
 st = B.STATES[500]
 assert st["step"] == "occ_paywall" and st["card_ref"] and st["card_seen"] == [st["card_ref"]]
-assert cbs(kinds("send_photo")[-1][2]["reply_markup"]) == ["occ:pc:next", "cc:open"]
+assert cbs(kinds("send_photo")[-1][2]["reply_markup"]) == ["occ:pc:next"]
 text_msg = kinds("send_message")[-1]
 shown = text_msg[1][1]
 assert "▒" in shown and "ВТОРАЯ_ПОЛОВИНА_СЕКРЕТ" not in shown and "Первая половина" in shown, shown

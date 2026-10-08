@@ -1998,13 +1998,12 @@ def occ_preview_text(state):
             + (f"\n\n{lines}" if lines else ""))
 
 
-PHOTO_CAPTION = "Твоя открытка (превью) 🖼 Не нравится картинка — выбери другую или собери сама, это бесплатно."
+PHOTO_CAPTION = "Твоя открытка (превью) 🖼 Не нравится картинка — выбери другую, это бесплатно."
 
 
 def occ_photo_markup():
     kb = types.InlineKeyboardMarkup(row_width=1)
     kb.add(types.InlineKeyboardButton("🖼 Другая картинка", callback_data="occ:pc:next"))
-    kb.add(types.InlineKeyboardButton("🎨 Настроить открытку", callback_data="cc:open"))
     return kb
 
 
@@ -2522,10 +2521,6 @@ def occ_deliver(chat_id, order):
     send_long(chat_id, order["letter_text"], markup=rate_kb)
 
     occ_send_options(chat_id, order)
-    try:
-        ai_card.offer(chat_id, order)
-    except Exception as exc:
-        log.error("ai card offer: %s", exc)
     try:
         calendar_reminders.offer_after_order(chat_id, order)
     except Exception as exc:

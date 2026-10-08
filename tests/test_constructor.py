@@ -103,7 +103,7 @@ for ans in ["Катя", "подруга", "30", "черешня на крыше"
 B.occ_tone(call("occ:tone:warm"))
 B.occ_answer(msg("Серёжа"))
 st = B.STATES[500]
-assert "cc:open" in cbs(last("send_photo")[2]["reply_markup"])
+assert cbs(last("send_photo")[2]["reply_markup"]) == ["occ:pc:next"], "конструктор в превью скрыт: только выбор другой картинки"
 
 CC.open_cb(call("cc:open"))
 assert st["cc"]["props"] == [] and "!" in st["card_ref"]
@@ -174,7 +174,7 @@ assert PC.parse_spec(st["card_ref"])["anim"] == "snow" and PC.parse_spec(st["car
 CC.change_cb(call("cc:pal:sage"))
 CC.change_cb(call("cc:prop:olive_branch"))
 CC.done_cb(call("cc:done"))
-assert cbs(last("edit_message_reply_markup")[2]["reply_markup"]) == ["occ:pc:next", "cc:open"]
+assert cbs(last("edit_message_reply_markup")[2]["reply_markup"]) == ["occ:pc:next"]
 final_ref = st["card_ref"]
 assert PC.parse_spec(final_ref)["props"] == ["olive_branch"] and PC.parse_spec(final_ref)["anim"] == "snow"
 
