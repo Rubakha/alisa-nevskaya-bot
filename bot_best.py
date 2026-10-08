@@ -2462,6 +2462,7 @@ def occ_deliver(chat_id, order):
             query=f"card_{occ_gift_code(order)}", allow_user_chats=True, allow_group_chats=True),
     ))
     kb.add(types.InlineKeyboardButton("📤 Отправить ссылкой (WhatsApp, другие чаты)", url=share_url))
+    kb.add(types.InlineKeyboardButton("📨 Не отправляется? Готовые сообщения", callback_data=f"gift:fwd:{order['order_id']}"))
     kb.add(partners.friend_gift_markup(order["chat_id"]))
     kb.add(types.InlineKeyboardButton("🎀 Ещё одно письмо с открыткой", callback_data="occ:catalog"))
     bot.send_message(
@@ -2494,25 +2495,65 @@ def occ_inline_send(query):
         bot.answer_inline_query(query.id, [], cache_time=0, is_personal=True)
         return
 
-    who = order.get("sign") or "близкого человека"
-    name = (order.get("gift_for") or "").strip()
-    teaser = (f"💌 {name}, тебе письмо от {who}" if name else f"💌 Тебе письмо от {who}") \
-        + "\nВнутри — несколько слов, написанных специально для тебя."
+    teaser, link = occ_gift_teaser(order), occ_gift_link(order)
     kb = types.InlineKeyboardMarkup()
-    kb.add(types.InlineKeyboardButton("Открыть письмо 💌", url=occ_gift_link(order)))
+    kb.add(types.InlineKeyboardButton("Открыть письмо 💌", url=link))
+    caption = f"{teaser}\n\n👉 {link}"  # ссылка и в тексте: кнопка пропадает при пересылке
+    results = []
     file_id = order.get("card_file_id")
     if order.get("card_anim_file_id"):  # у живой открытки получатель видит анимацию
-        result = types.InlineQueryResultCachedGif(
-            id=code, gif_file_id=order["card_anim_file_id"], caption=teaser, reply_markup=kb)
+        results.append(types.InlineQueryResultCachedGif(
+            id=code, gif_file_id=order["card_anim_file_id"], caption=caption, reply_markup=kb))
     elif file_id:
-        result = types.InlineQueryResultCachedPhoto(
-            id=code, photo_file_id=file_id, caption=teaser, reply_markup=kb)
-    else:
-        result = types.InlineQueryResultArticle(
-            id=code, title="Отправить письмо 💌",
-            input_message_content=types.InputTextMessageContent(message_text=teaser),
-            reply_markup=kb)
-    bot.answer_inline_query(query.id, [result], cache_time=0, is_personal=True)
+        results.append(types.InlineQueryResultCachedPhoto(
+            id=code, photo_file_id=file_id, caption=caption, reply_markup=kb))
+    letter = (order.get("letter_text") or "").strip()
+    if letter:  # письмо целиком текстом — для тех, кому нужен сам текст, а не конверт
+        full = f"{teaser}\n\n{letter}"
+        if len(full) > 3900:
+            full = full[:3880].rsplit(" ", 1)[0] + "…\n\n👉 " + link
+        results.append(types.InlineQueryResultArticle(
+            id=f"{code}t", title="📝 Письмо текстом", description=letter[:90].replace("\n", " ") + "…",
+            input_message_content=types.InputTextMessageContent(message_text=full), reply_markup=kb))
+    results.append(types.InlineQueryResultArticle(
+        id=f"{code}l", title="🔗 Только ссылка на конверт", description="Письмо откроется в боте, ты узнаешь об этом",
+        input_message_content=types.InputTextMessageContent(message_text=caption), reply_markup=kb))
+    bot.answer_inline_query(query.id, results, cache_time=0, is_personal=True)
+
+
+def occ_gift_teaser(order):
+    who = order.get("sign") or "близкого человека"
+    name = (order.get("gift_for") or "").strip()
+    return ((f"💌 {name}, тебе письмо от {who}" if name else f"💌 Тебе письмо от {who}")
+            + "\nВнутри — несколько слов, написанных специально для тебя.")
+
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("gift:fwd:"))
+def occ_forward_pack(call):
+    """Запасной путь, если inline не отправляется: готовые сообщения, которые можно переслать кнопкой «Переслать»."""
+    chat_id = call.message.chat.id
+    order = get_order(call.data.split(":", 2)[2])
+    if not order or order.get("chat_id") != chat_id or order.get("status") != "done":
+        bot.answer_callback_query(call.id, "Недоступно", show_alert=True)
+        return
+    bot.answer_callback_query(call.id)
+    link = occ_gift_link(order)
+    bot.send_message(chat_id, "📨 Вот готовые сообщения. Нажми и удерживай, выбери «Переслать» и выбери человека — "
+                              "от твоего имени они уйдут как есть.")
+    caption = f"{occ_gift_teaser(order)}\n\n👉 {link}"
+    try:
+        if order.get("card_anim_file_id"):
+            bot.send_animation(chat_id, order["card_anim_file_id"], caption=caption)
+        elif order.get("card_file_id"):
+            bot.send_photo(chat_id, order["card_file_id"], caption=caption)
+        else:
+            bot.send_message(chat_id, caption)
+    except Exception as exc:
+        log.error("forward pack photo %s: %s", order["order_id"], exc)
+        bot.send_message(chat_id, caption)
+    letter = (order.get("letter_text") or "").strip()
+    if letter:
+        send_long(chat_id, letter, "")
 
 
 def occ_gift_start(chat_id, code):
