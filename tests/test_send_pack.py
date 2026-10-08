@@ -57,7 +57,7 @@ def inline(chat=500):
 res = inline()
 kinds = [type(r).__name__ for r in res]
 assert kinds == ["InlineQueryResultCachedPhoto", "InlineQueryResultArticle", "InlineQueryResultArticle"], kinds
-link = B.occ_web_envelope(order)
+link = B.occ_gift_link(order)   # по умолчанию кнопка получателя открывает конверт в Telegram
 assert getattr(res[0], "caption", None) is None, "открытка уходит без подписи и ссылок — только картинка и кнопка"
 assert res[0].reply_markup.keyboard[0][0].text == "💌 Вскрыть письмо от Серёжи"
 assert res[1].title == "📝 Письмо текстом" and "ты для меня самый близкий" in res[1].input_message_content.message_text
@@ -107,7 +107,9 @@ for s_ in SENT:
 assert kb is not None
 first = kb.keyboard[0][0]
 assert first.text == "💌 Отправить Катя"
-assert first.web_app.url == f"{B.site_pages.SITE_URL}/share/{code}", "главная кнопка — мини-приложение отправки"
+assert first.switch_inline_query_chosen_chat.query == "card_" + code, "главная кнопка — отправка через чат (сайт не нужен)"
+quick = kb.keyboard[1][0]
+assert quick.web_app.url == f"{B.site_pages.SITE_URL}/share/{code}", "быстрая отправка — мини-приложение"
 share = B.occ_share_url(order)   # запасная ссылка «поделиться» живёт в «Других способах»
 assert share.startswith("https://t.me/share/url?url=")
 import urllib.parse as up  # noqa: E402
@@ -164,7 +166,7 @@ for _ in range(2):   # второй раз тоже можно
     assert opts, "кнопки отправки показаны снова"
     labels = [(b.text, getattr(b, "web_app", None) is not None or getattr(b, "switch_inline_query_chosen_chat", None) is not None)
               for row in opts[0][2]["reply_markup"].keyboard for b in row]
-    assert any("Отправить Катя" in t and w for t, w in labels) and any("Не открылось" in t and w for t, w in labels)
+    assert any("Отправить Катя" in t and w for t, w in labels) and any("Быстрая отправка" in t and w for t, w in labels)
 # устаревший file_id: открытка собирается заново и сохраняется
 def bad_photo(chat, photo, **k):
     if photo == "PH":
@@ -180,4 +182,25 @@ SENT.clear()
 B.cabinet_send(pytypes.SimpleNamespace(id="c", data="cab:send:" + order["order_id"], from_user=user(999),
                                        message=pytypes.SimpleNamespace(chat=pytypes.SimpleNamespace(id=999), message_id=5)))
 assert not [s_ for s_ in SENT if s_[0] in ("send_photo", "send_message")]
+# ── получатель открывает конверт внутри Telegram: запечатанный конверт → кнопка → печать ломается → открытка и письмо ──
+import time as _time  # noqa: E402
+_time.sleep = lambda *_: None
+order["card_anim_file_id"] = "AN"
+order["letter_text"] = "Абзац один.\n\nАбзац два."
+B.save_order(order)
+SENT.clear()
+B.occ_gift_start(777, code)
+env = [s_ for s_ in SENT if s_[0] == "send_animation"][-1]
+assert "Катя, тебе письмо от <b>Серёжи</b>" in env[2]["caption"] and env[1][0] == 777
+btn = env[2]["reply_markup"].keyboard[0][0]
+assert btn.text == "✉️ Вскрыть письмо от Серёжи" and btn.callback_data == "env:open:" + code
+assert env[1][1].getvalue()[:3] == b"GIF", "запечатанный конверт рисует бот"
+SENT.clear()
+B.occ_envelope_open(pytypes.SimpleNamespace(id="c", data="env:open:" + code, from_user=user(777),
+                                            message=pytypes.SimpleNamespace(chat=pytypes.SimpleNamespace(id=777), message_id=5)))
+anims = [s_ for s_ in SENT if s_[0] == "send_animation"]
+assert anims[0][1][1].getvalue()[:3] == b"GIF" and anims[1][1][1] == "AN", "печать ломается, затем живая открытка"
+assert any("Абзац два." in str(s_[1]) for s_ in SENT if s_[0] == "send_message"), "письмо целиком"
+assert any(s_[1][0] == 500 and "открыл(а) твоё письмо" in s_[1][1] for s_ in SENT if s_[0] == "send_message"), "отправитель уведомлён"
+assert B.get_order(order["order_id"])["opened_by"] == 777
 print("OK: send pack")

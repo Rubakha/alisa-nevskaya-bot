@@ -74,18 +74,18 @@ SITE = B.site_pages.SITE_URL
 res = M.prepared_result(order, code, SITE)
 assert res["type"] == "photo" and res["photo_file_id"] == "PHOTO1" and "caption" not in res
 btn = res["reply_markup"]["inline_keyboard"][0][0]
-assert btn == {"text": "💌 Вскрыть письмо от Серёжи", "url": f"{SITE}/e/{code}"}, btn
+assert btn == {"text": "💌 Вскрыть письмо от Серёжи", "url": f"https://t.me/{B.BOT_USERNAME}?start=g_{code}"}, btn
 order["card_anim_file_id"] = "GIF1"
 assert M.prepared_result(order, code, SITE)["type"] == "gif"
 assert M.prepared_result({**order, "card_file_id": None, "card_anim_file_id": None}, code, SITE)["type"] == "article"
 order["card_anim_file_id"] = None
 
-# аварийный переключатель: сайт недоступен → кнопка ведёт в Telegram
-os.environ["ENVELOPE_LINK"] = "bot"
-bot_res = M.prepared_result(order, code, SITE)
-assert bot_res["reply_markup"]["inline_keyboard"][0][0]["url"] == f"https://t.me/{B.BOT_USERNAME}?start=g_{code}"
+# переключатель: ENVELOPE_LINK=web — страница-конверт на сайте
+os.environ["ENVELOPE_LINK"] = "web"
+web_res = M.prepared_result(order, code, SITE)
+assert web_res["reply_markup"]["inline_keyboard"][0][0]["url"] == f"{SITE}/e/{code}"
 os.environ.pop("ENVELOPE_LINK")
-assert M.prepared_result(order, code, SITE)["reply_markup"]["inline_keyboard"][0][0]["url"] == f"{SITE}/e/{code}"
+assert M.prepared_result(order, code, SITE)["reply_markup"]["inline_keyboard"][0][0]["url"].startswith("https://t.me/")
 
 # ── эндпоинты ──
 client = B.app.test_client()

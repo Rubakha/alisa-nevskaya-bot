@@ -46,11 +46,11 @@ def validate_init_data(init_data, token, now=None, max_age=MAX_AGE):
 
 
 def open_link(order, code, site):
-    """Куда ведёт кнопка получателя. По умолчанию — страница-конверт на сайте; если сайт недоступен, переменная
-    ENVELOPE_LINK=bot переключает на открытие конверта прямо в Telegram (не зависит от сайта)."""
-    if (B.os.getenv("ENVELOPE_LINK", "web") if B else "web") == "bot":
-        return f"https://t.me/{B.BOT_USERNAME}?start=g_{code}"
-    return f"{site}/e/{code}"
+    """Куда ведёт кнопка получателя. По умолчанию — конверт прямо в Telegram (бот рисует печать и анимацию, сайт не
+    нужен). ENVELOPE_LINK=web переключает на страницу-конверт на сайте."""
+    if (B.os.getenv("ENVELOPE_LINK", "bot") if B else "bot") == "web":
+        return f"{site}/e/{code}"
+    return f"https://t.me/{B.BOT_USERNAME}?start=g_{code}"
 
 
 def button_label(order):

@@ -28,6 +28,7 @@ from telebot.types import LabeledPrice, Update
 import calendar_reminders
 import ai_card
 import cardanim
+import envelope_anim
 import envelope_pages
 import cardbase
 import constructor
@@ -2427,18 +2428,20 @@ def occ_send_options(chat_id, order):
     label = f"💌 Отправить {name}" if name and len(name) <= 20 else "💌 Отправить получателю"
     kb = types.InlineKeyboardMarkup(row_width=1)
     kb.add(types.InlineKeyboardButton(
-        label, web_app=types.WebAppInfo(url=f"{site_pages.SITE_URL}/share/{occ_gift_code(order)}")))
-    kb.add(types.InlineKeyboardButton(
-        "💬 Не открылось? Отправить через чат",
+        label,
         switch_inline_query_chosen_chat=types.SwitchInlineQueryChosenChat(
             query=f"card_{occ_gift_code(order)}", allow_user_chats=True, allow_group_chats=True)))
+    kb.add(types.InlineKeyboardButton(
+        "⚡ Быстрая отправка (в один тап)",
+        web_app=types.WebAppInfo(url=f"{site_pages.SITE_URL}/share/{occ_gift_code(order)}")))
     kb.add(types.InlineKeyboardButton("⋯ Другие способы", callback_data=f"gift:more:{order['order_id']}"))
     kb.add(partners.friend_gift_markup(order["chat_id"]))
     kb.add(types.InlineKeyboardButton("🎀 Ещё одно письмо с открыткой", callback_data="occ:catalog"))
     bot.send_message(
         chat_id,
         "✉️ <b>Письмо готово — отправь его</b>\n\n"
-        "Нажми «Отправить» и выбери человека: получателю уйдёт открытка и кнопка «Вскрыть письмо». "
+        "1. Нажми «Отправить» и выбери человека.\n"
+        "2. Коснись открытки в списке — она уйдёт с кнопкой «Вскрыть письмо».\n\n"
         "Отправить можно в любое время и сколько угодно раз. Я сообщу тебе, когда он откроет письмо ✨",
         parse_mode="HTML", reply_markup=kb)
 
@@ -2638,12 +2641,16 @@ def occ_gift_start(chat_id, code):
     who = envelope_pages.from_whom(order)
     name = order.get("gift_for") or ""
     kb = types.InlineKeyboardMarkup()
-    kb.add(types.InlineKeyboardButton("✉️ Вскрыть конверт", callback_data=f"env:open:{code}"))
-    bot.send_message(
-        chat_id,
-        f"💌 {esc(name) + ', тебе' if name else 'Тебе'} письмо от <b>{esc(who)}</b>.\n\n"
-        "Внутри — открытка и несколько слов, написанных специально для тебя.",
-        parse_mode="HTML", reply_markup=kb)
+    kb.add(types.InlineKeyboardButton(f"✉️ Вскрыть письмо от {who}"[:60], callback_data=f"env:open:{code}"))
+    caption = (f"💌 {esc(name) + ', тебе' if name else 'Тебе'} письмо от <b>{esc(who)}</b>\n\n"
+               "Внутри — открытка и несколько слов, написанных специально для тебя.")
+    try:  # запечатанный конверт с сургучной печатью (рисуется ботом, сайт не нужен)
+        gif = io.BytesIO(envelope_anim.closed_gif())
+        gif.name = "envelope.gif"
+        bot.send_animation(chat_id, gif, caption=caption, parse_mode="HTML", reply_markup=kb)
+    except Exception as exc:
+        log.error("envelope gif: %s", exc)
+        bot.send_message(chat_id, caption, parse_mode="HTML", reply_markup=kb)
 
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("env:open:"))
@@ -2660,10 +2667,24 @@ def occ_envelope_open(call):
         bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=None)
     except Exception:
         pass
+    try:  # печать ломается, конверт раскрывается
+        gif = io.BytesIO(envelope_anim.opening_gif())
+        gif.name = "opening.gif"
+        bot.send_animation(chat_id, gif)
+        time.sleep(2.2)
+    except Exception as exc:
+        log.error("envelope opening gif: %s", exc)
     try:
-        bot.send_photo(chat_id, occ_postcard(order))
+        if order.get("card_anim_file_id"):
+            bot.send_animation(chat_id, order["card_anim_file_id"])
+        else:
+            bot.send_photo(chat_id, order.get("card_file_id") or occ_postcard(order))
     except Exception as exc:
         log.error("envelope postcard failed: %s", exc)
+        try:
+            bot.send_photo(chat_id, occ_postcard(order))
+        except Exception as exc2:
+            log.error("envelope postcard render failed: %s", exc2)
     send_long(chat_id, order["letter_text"])
 
     if not order.get("opened_at") and chat_id != order["chat_id"]:
