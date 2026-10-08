@@ -238,22 +238,24 @@ def special(slug):
 def card_page(slug):
     m = CARD_PAGES[slug]
     key, p = m["key"], OCC.PRODUCTS[m["key"]]
+    bot_key, price = m.get("bot", key), m.get("price", p["price"])  # «group» — повод вне каталога, цена своя
     ex = "".join(f'<div class="hand">{html.escape(e)}</div>' for e in m["phrases"])
     faq = "".join(f"<details><summary>{html.escape(q)}</summary><p>{html.escape(a)}</p></details>" for q, a in m["faq"])
     rush = f'Успейте к {m["deadline"]}' if m.get("deadline") else "Открытка с твоим текстом за 2 минуты"
     near = " · ".join(f'<a href="{card_url(s)}">{html.escape(card_title(s))}</a>' for s in m["links"])
+    start_step = m.get("start") or f'Открой бота по кнопке и выбери повод. Он уже подставлен: «{html.escape(p["title"])}».'
     make = (f'<h2>Как сделать открытку с твоим текстом за 2 минуты</h2><ol class="steps">'
-            f'<li>Открой бота по кнопке и выбери повод. Он уже подставлен: «{html.escape(p["title"])}».</li>'
+            f'<li>{start_step}</li>'
             f'<li>Ответь на 3–4 вопроса: кому, что вас связывает, какая деталь важна. Можно взять любую фразу выше и дописать своё.</li>'
             f'<li>Посмотри превью открытки и текста. Оплата только после того, как тебе понравилось.</li>'
             f'<li>Отправь ссылку-конверт в Telegram или любой мессенджер. Придёт уведомление, когда её откроют.</li></ol>')
     body = (f'<img class="hero-card" src="/card/{key}.jpg" alt="Открытка: {html.escape(p["title"])}">'
             f'<h1>{html.escape(m["h1"])}</h1><p class="lead">{html.escape(m["lead"])}</p>'
-            f'<a class="btn" href="{bot_link(key)}">Сделать открытку — {p["price"]} ₽</a>'
-            f'<a class="btn ghost" href="{vk_link(key)}">Или во ВКонтакте</a>'
+            f'<a class="btn" href="{bot_link(bot_key)}">Сделать открытку — {price} ₽</a>'
+            f'<a class="btn ghost" href="{vk_link(bot_key)}">Или во ВКонтакте</a>'
             f'<h2>Готовые фразы для открытки</h2>{ex}{make}'
             f'<div class="cta"><b>{rush}</b><p>Алиса соберёт текст из твоих деталей и положит его на открытку. 💌</p>'
-            f'<a class="btn" href="{bot_link(key)}">Начать в Telegram</a><a class="btn ghost" href="{vk_link(key)}">Во ВКонтакте</a></div>'
+            f'<a class="btn" href="{bot_link(bot_key)}">Начать в Telegram</a><a class="btn ghost" href="{vk_link(bot_key)}">Во ВКонтакте</a></div>'
             f'<h2>Вопросы</h2>{faq}<h2>Читай также</h2><p>{near}</p>'
             f'<h2>Открытки по поводам</h2><p>{card_links(skip=slug)}</p>')
     return page(m["title"], m["desc"], body, f"/{slug}", m["faq"])
@@ -271,7 +273,7 @@ def sitemap():
 FEED_OFFERS = [
     ("letter-parent", "Письмо папе или маме с открыткой", 199, "/pismo-pape-i-mame", "Личное письмо и открытка родителям: Алиса собирает текст из ваших деталей, превью до оплаты."),
     ("card-personal", "Открытка с личным текстом", 249, "/otkrytka-mame-s-lichnym-tekstom", "Цифровая открытка с вашими словами к любому поводу, ссылка-конверт для отправки в мессенджер."),
-    ("letter-group", "Групповое письмо от всех", 399, "/otkrytka-blagodarnost-uchitelyu-vrachu", "Одно письмо от нескольких человек: каждый добавляет свои слова, Алиса собирает общий текст."),
+    ("letter-group", "Групповое письмо от всех", 399, "/gruppovoe-pismo-ot-vseh", "Одно письмо от нескольких человек: каждый добавляет свои слова, Алиса собирает общий текст."),
     ("christmas-letter", "Рождественское письмо с открыткой", 249, "/rozhdestvenskoe-pismo", "Тёплое рождественское письмо и открытка с вашими словами для близких, бережно для верующих и нейтрально для остальных."),
     ("santa-letter", "Именное письмо от Деда Мороза ребёнку", 249, "/pismo/pismo-ot-deda-moroza-rebenku", "Письмо от Деда Мороза по имени с настоящими успехами ребёнка."),
 ]

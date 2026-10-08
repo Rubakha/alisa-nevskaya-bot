@@ -20,7 +20,7 @@ import site_pages as SP  # noqa: E402
 from site_cards import CARDS  # noqa: E402
 
 c = B.app.test_client()
-assert len(CARDS) == 15
+assert len(CARDS) == 16
 sm = c.get("/sitemap.xml").get_data(as_text=True)
 locs = {e.text for e in ET.fromstring(sm).iter("{http://www.sitemaps.org/schemas/sitemap/0.9}loc")}
 for slug, m in CARDS.items():
@@ -28,7 +28,7 @@ for slug, m in CARDS.items():
     assert r.status_code == 200, slug
     h = r.get_data(as_text=True)
     assert SP.SITE_URL + f"/{slug}" in locs, slug
-    assert m["key"] in OCC.PRODUCTS and f"?start=w_{m['key']}" in h, slug
+    assert m["key"] in OCC.PRODUCTS and f"?start=w_{m.get('bot', m['key'])}" in h, slug
     ld = json.loads(re.search(r'application/ld\+json">(.*?)</script>', h, re.S).group(1))
     assert ld["@type"] == "FAQPage" and 3 <= len(ld["mainEntity"]) <= 5, slug
     assert 8 <= len(m["phrases"]) <= 15, slug
@@ -59,3 +59,7 @@ assert [o.find("price").text for o in offers] == ["199", "249", "399", "249", "2
 assert all(o.find("url").text.startswith(SP.SITE_URL) for o in offers)
 assert root.find(".//category").text == "Исполнители"
 print("OK:", len(CARDS), "страниц")
+
+g = c.get("/gruppovoe-pismo-ot-vseh").get_data(as_text=True)
+assert "399 ₽" in g and "w_group" in g and "/gruppovoe-pismo-ot-vseh" in SP.SITE_URL + "/gruppovoe-pismo-ot-vseh"
+assert dict((o.get("id"), o.find("url").text) for o in offers)["letter-group"].endswith("/gruppovoe-pismo-ot-vseh")
