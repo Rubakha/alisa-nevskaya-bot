@@ -217,6 +217,8 @@ def check_promo(chat_id, code, now=None):
         return True, promo
     p = get_partner(code)
     if p and p.get("status") == "active":
+        if not is_first_order(chat_id):  # код партнёра — скидка аудитории только на первый заказ
+            return False, "Ты уже использовал(а) этот промокод."
         return True, {"code": p["code"], "kind": "percent", "value": p["discount"], "partner": p["code"],
                       "is_partner_code": True}
     return False, "Не нашла такой промокод. Проверь написание."
