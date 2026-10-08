@@ -1599,6 +1599,8 @@ def cabinet_read(call):
                 for i in range(1, 6)
             ]
         )
+    if order.get("status") == "done" and order.get("product") in OCC.PRODUCTS:
+        kb.add(types.InlineKeyboardButton("💌 Открытка и отправка получателю", callback_data=f"cab:send:{order_id}"))
     kb.add(types.InlineKeyboardButton("↩️ В кабинет", callback_data="cab:home"))
 
     chunk = header + body
@@ -2418,6 +2420,67 @@ def occ_postcard(order, preview=False):
                             card_ref=order.get("card_ref"))
 
 
+def occ_send_options(chat_id, order):
+    """Сообщение «Письмо готово — отправь его» с кнопками отправки. Показывается после оплаты и из кабинета —
+    отправить можно сколько угодно раз и в любое время."""
+    name = (order.get("gift_for") or "").strip()
+    label = f"💌 Отправить {name}" if name and len(name) <= 20 else "💌 Отправить получателю"
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(types.InlineKeyboardButton(
+        label, web_app=types.WebAppInfo(url=f"{site_pages.SITE_URL}/share/{occ_gift_code(order)}")))
+    kb.add(types.InlineKeyboardButton(
+        "💬 Не открылось? Отправить через чат",
+        switch_inline_query_chosen_chat=types.SwitchInlineQueryChosenChat(
+            query=f"card_{occ_gift_code(order)}", allow_user_chats=True, allow_group_chats=True)))
+    kb.add(types.InlineKeyboardButton("⋯ Другие способы", callback_data=f"gift:more:{order['order_id']}"))
+    kb.add(partners.friend_gift_markup(order["chat_id"]))
+    kb.add(types.InlineKeyboardButton("🎀 Ещё одно письмо с открыткой", callback_data="occ:catalog"))
+    bot.send_message(
+        chat_id,
+        "✉️ <b>Письмо готово — отправь его</b>\n\n"
+        "Нажми «Отправить» и выбери человека: получателю уйдёт открытка и кнопка «Вскрыть письмо». "
+        "Отправить можно в любое время и сколько угодно раз. Я сообщу тебе, когда он откроет письмо ✨",
+        parse_mode="HTML", reply_markup=kb)
+
+
+def occ_resend(chat_id, order):
+    """Из кабинета: снова показать открытку (и живую версию) и дать отправить письмо получателю."""
+    sent = False
+    for kind in ("anim", "photo"):
+        file_id = order.get("card_anim_file_id") if kind == "anim" else order.get("card_file_id")
+        if not file_id:
+            continue
+        try:
+            if kind == "anim":
+                bot.send_animation(chat_id, file_id, caption="✨ Живая открытка")
+            else:
+                bot.send_photo(chat_id, file_id, caption="🖼 Твоя открытка")
+            sent = True
+        except Exception as exc:  # file_id устарел — соберём заново ниже
+            log.error("resend %s %s: %s", kind, order["order_id"], exc)
+            order["card_anim_file_id" if kind == "anim" else "card_file_id"] = None
+    if not sent:
+        try:
+            msg = bot.send_photo(chat_id, occ_postcard(order), caption="🖼 Твоя открытка")
+            order["card_file_id"] = msg.photo[-1].file_id
+        except Exception as exc:
+            log.error("resend render %s: %s", order["order_id"], exc)
+    save_order(order)
+    occ_send_options(chat_id, order)
+
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("cab:send:"))
+def cabinet_send(call):
+    chat_id = call.message.chat.id
+    order = get_order(call.data.split(":", 2)[2])
+    if (not order or order.get("chat_id") != chat_id or order.get("status") != "done"
+            or order.get("product") not in OCC.PRODUCTS):
+        bot.answer_callback_query(call.id, "Письмо не найдено", show_alert=True)
+        return
+    bot.answer_callback_query(call.id)
+    occ_resend(chat_id, order)
+
+
 def occ_deliver(chat_id, order):
     if order.get("card_ref") and not order.get("is_test"):
         try:  # эта картинка больше не предлагается этому человеку
@@ -2450,20 +2513,7 @@ def occ_deliver(chat_id, order):
                   for i in range(1, 6)])
     send_long(chat_id, order["letter_text"], markup=rate_kb)
 
-    name = (order.get("gift_for") or "").strip()
-    label = f"💌 Отправить {name}" if name and len(name) <= 20 else "💌 Отправить получателю"
-    kb = types.InlineKeyboardMarkup(row_width=1)
-    kb.add(types.InlineKeyboardButton(
-        label, web_app=types.WebAppInfo(url=f"{site_pages.SITE_URL}/share/{occ_gift_code(order)}")))
-    kb.add(types.InlineKeyboardButton("⋯ Другие способы", callback_data=f"gift:more:{order['order_id']}"))
-    kb.add(partners.friend_gift_markup(order["chat_id"]))
-    kb.add(types.InlineKeyboardButton("🎀 Ещё одно письмо с открыткой", callback_data="occ:catalog"))
-    bot.send_message(
-        chat_id,
-        "✉️ <b>Письмо готово — отправь его</b>\n\n"
-        "Нажми «Отправить» и выбери человека: открытка и слова уже будут в сообщении, "
-        "останется нажать «Отправить». Я сообщу тебе, когда он откроет письмо ✨",
-        parse_mode="HTML", reply_markup=kb)
+    occ_send_options(chat_id, order)
     try:
         ai_card.offer(chat_id, order)
     except Exception as exc:
@@ -2484,18 +2534,19 @@ def occ_inline_send(query):
         bot.answer_inline_query(query.id, [], cache_time=0, is_personal=True)
         return
 
-    teaser, link = occ_gift_teaser(order), occ_gift_link(order)
+    teaser, link = occ_gift_teaser(order), occ_web_envelope(order)
     kb = types.InlineKeyboardMarkup()
-    kb.add(types.InlineKeyboardButton("Открыть письмо 💌", url=link))
-    caption = f"{teaser}\n\n👉 {link}"  # ссылка и в тексте: кнопка пропадает при пересылке
+    kb.add(types.InlineKeyboardButton(miniapp_share.button_label(order), url=link))
+    caption = f"{teaser}\n\n👉 {link}"  # для текстовых вариантов: ссылка и в тексте
     results = []
     file_id = order.get("card_file_id")
-    if order.get("card_anim_file_id"):  # у живой открытки получатель видит анимацию
+    # открытка (или GIF) — только картинка и кнопка «Вскрыть письмо от …», без подписи и ссылок
+    if order.get("card_anim_file_id"):
         results.append(types.InlineQueryResultCachedGif(
-            id=code, gif_file_id=order["card_anim_file_id"], caption=caption, reply_markup=kb))
+            id=code, gif_file_id=order["card_anim_file_id"], reply_markup=kb))
     elif file_id:
         results.append(types.InlineQueryResultCachedPhoto(
-            id=code, photo_file_id=file_id, caption=caption, reply_markup=kb))
+            id=code, photo_file_id=file_id, reply_markup=kb))
     letter = (order.get("letter_text") or "").strip()
     if letter:  # письмо целиком текстом — для тех, кому нужен сам текст, а не конверт
         full = f"{teaser}\n\n{letter}"

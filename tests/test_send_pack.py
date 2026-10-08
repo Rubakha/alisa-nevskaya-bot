@@ -57,8 +57,9 @@ def inline(chat=500):
 res = inline()
 kinds = [type(r).__name__ for r in res]
 assert kinds == ["InlineQueryResultCachedPhoto", "InlineQueryResultArticle", "InlineQueryResultArticle"], kinds
-link = B.occ_gift_link(order)
-assert link in res[0].caption and "Катя, тебе письмо от Серёжи" in res[0].caption
+link = B.occ_web_envelope(order)
+assert getattr(res[0], "caption", None) is None, "открытка уходит без подписи и ссылок — только картинка и кнопка"
+assert res[0].reply_markup.keyboard[0][0].text == "💌 Вскрыть письмо от Серёжи"
 assert res[1].title == "📝 Письмо текстом" and "ты для меня самый близкий" in res[1].input_message_content.message_text
 assert link in res[2].input_message_content.message_text
 assert len({r.id for r in res}) == 3, "id результатов уникальны"
@@ -86,7 +87,7 @@ B.occ_forward_pack(pytypes.SimpleNamespace(id="c", data="gift:fwd:" + order["ord
                                            message=pytypes.SimpleNamespace(chat=pytypes.SimpleNamespace(id=500),
                                                                            message_id=5)))
 anim = [s for s in SENT if s[0] == "send_animation"]
-assert anim and link in anim[0][2]["caption"]
+assert anim and B.occ_gift_link(order) in anim[0][2]["caption"]
 assert any("ты для меня самый близкий" in str(s[1]) for s in SENT if s[0] == "send_message"), "письмо текстом тоже"
 SENT.clear()
 B.occ_forward_pack(pytypes.SimpleNamespace(id="c", data="gift:fwd:" + order["order_id"], from_user=user(999),
@@ -141,4 +142,42 @@ B.occ_more_ways(pytypes.SimpleNamespace(id="c", data="gift:more:" + order["order
                                         message=pytypes.SimpleNamespace(chat=pytypes.SimpleNamespace(id=999),
                                                                         message_id=5)))
 assert not [s_ for s_ in SENT if s_[0] == "send_message"]
+
+# ── кабинет: прочитать письмо и отправить его снова, сколько угодно раз ──
+order["card_anim_file_id"] = None
+order["card_file_id"] = "PH"
+B.save_order(order)
+SENT.clear()
+read_call = pytypes.SimpleNamespace(id="c", data="cab:read:" + order["order_id"], from_user=user(500),
+                                    message=pytypes.SimpleNamespace(chat=pytypes.SimpleNamespace(id=500), message_id=5))
+B.bot.edit_message_text = rec("edit_message_text")
+B.cabinet_read(read_call)
+edit = [s_ for s_ in SENT if s_[0] == "edit_message_text"][-1]
+cb = [getattr(b, "callback_data", None) for row in edit[2]["reply_markup"].keyboard for b in row]
+assert "cab:send:" + order["order_id"] in cb, cb
+for _ in range(2):   # второй раз тоже можно
+    SENT.clear()
+    B.cabinet_send(pytypes.SimpleNamespace(id="c", data="cab:send:" + order["order_id"], from_user=user(500),
+                                           message=pytypes.SimpleNamespace(chat=pytypes.SimpleNamespace(id=500), message_id=5)))
+    assert [s_ for s_ in SENT if s_[0] == "send_photo"], "открытка показана снова"
+    opts = [s_ for s_ in SENT if s_[0] == "send_message" and "Письмо готово" in str(s_[1])]
+    assert opts, "кнопки отправки показаны снова"
+    labels = [(b.text, getattr(b, "web_app", None) is not None or getattr(b, "switch_inline_query_chosen_chat", None) is not None)
+              for row in opts[0][2]["reply_markup"].keyboard for b in row]
+    assert any("Отправить Катя" in t and w for t, w in labels) and any("Не открылось" in t and w for t, w in labels)
+# устаревший file_id: открытка собирается заново и сохраняется
+def bad_photo(chat, photo, **k):
+    if photo == "PH":
+        raise RuntimeError("wrong file identifier")
+    return pytypes.SimpleNamespace(message_id=1, photo=[pytypes.SimpleNamespace(file_id="NEW")])
+B.bot.send_photo = bad_photo
+SENT.clear()
+B.cabinet_send(pytypes.SimpleNamespace(id="c", data="cab:send:" + order["order_id"], from_user=user(500),
+                                       message=pytypes.SimpleNamespace(chat=pytypes.SimpleNamespace(id=500), message_id=5)))
+assert B.get_order(order["order_id"])["card_file_id"] == "NEW"
+# чужой заказ и неоплаченный не отдаём
+SENT.clear()
+B.cabinet_send(pytypes.SimpleNamespace(id="c", data="cab:send:" + order["order_id"], from_user=user(999),
+                                       message=pytypes.SimpleNamespace(chat=pytypes.SimpleNamespace(id=999), message_id=5)))
+assert not [s_ for s_ in SENT if s_[0] in ("send_photo", "send_message")]
 print("OK: send pack")
