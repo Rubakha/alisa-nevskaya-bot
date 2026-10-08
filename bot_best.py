@@ -2449,31 +2449,18 @@ def occ_deliver(chat_id, order):
                   for i in range(1, 6)])
     send_long(chat_id, order["letter_text"], markup=rate_kb)
 
-    link = occ_gift_link(order)
-    share_text = f"Тебе письмо 💌 Открой конверт:"
-    share_url = ("https://t.me/share/url?url=" + urllib.parse.quote(link)
-                 + "&text=" + urllib.parse.quote(share_text))
     name = (order.get("gift_for") or "").strip()
     label = f"💌 Отправить {name}" if name and len(name) <= 20 else "💌 Отправить получателю"
     kb = types.InlineKeyboardMarkup(row_width=1)
-    kb.add(types.InlineKeyboardButton(
-        label,
-        switch_inline_query_chosen_chat=types.SwitchInlineQueryChosenChat(
-            query=f"card_{occ_gift_code(order)}", allow_user_chats=True, allow_group_chats=True),
-    ))
-    kb.add(types.InlineKeyboardButton("📤 Отправить ссылкой (WhatsApp, другие чаты)", url=share_url))
-    kb.add(types.InlineKeyboardButton("📨 Не отправляется? Готовые сообщения", callback_data=f"gift:fwd:{order['order_id']}"))
+    kb.add(types.InlineKeyboardButton(label, url=occ_share_url(order)))
+    kb.add(types.InlineKeyboardButton("⋯ Другие способы", callback_data=f"gift:more:{order['order_id']}"))
     kb.add(partners.friend_gift_markup(order["chat_id"]))
     kb.add(types.InlineKeyboardButton("🎀 Ещё одно письмо с открыткой", callback_data="occ:catalog"))
     bot.send_message(
         chat_id,
-        "✉️ <b>Как подарить</b>\n\n"
-        "Нажми «Отправить» и выбери человека из своих чатов — открытка придёт ему "
-        "от тебя, а не от бота. Номер телефона не нужен.\n"
-        "Я сообщу тебе, когда он откроет письмо ✨\n\n"
-        "Другой способ — ссылка на конверт:\n"
-        f"<code>{link}</code>\n"
-        "Или просто перешли ему открытку и письмо выше.",
+        "✉️ <b>Письмо готово — отправь его</b>\n\n"
+        "Нажми «Отправить» и выбери человека: открытка и слова уже будут в сообщении, "
+        "останется нажать «Отправить». Я сообщу тебе, когда он откроет письмо ✨",
         parse_mode="HTML", reply_markup=kb)
     try:
         ai_card.offer(chat_id, order)
@@ -2526,6 +2513,37 @@ def occ_gift_teaser(order):
     name = (order.get("gift_for") or "").strip()
     return ((f"💌 {name}, тебе письмо от {who}" if name else f"💌 Тебе письмо от {who}")
             + "\nВнутри — несколько слов, написанных специально для тебя.")
+
+
+def occ_share_url(order):
+    """Одна кнопка «Отправить»: Telegram откроет выбор человека, в поле уже будут текст и ссылка на конверт,
+    а у ссылки — превью с открыткой этого заказа (og:image страницы /e/<код>)."""
+    return ("https://t.me/share/url?url=" + urllib.parse.quote(occ_web_envelope(order), safe="")
+            + "&text=" + urllib.parse.quote(occ_gift_teaser(order), safe=""))
+
+
+@bot.callback_query_handler(func=lambda c: c.data.startswith("gift:more:"))
+def occ_more_ways(call):
+    chat_id = call.message.chat.id
+    order = get_order(call.data.split(":", 2)[2])
+    if not order or order.get("chat_id") != chat_id or order.get("status") != "done":
+        bot.answer_callback_query(call.id, "Недоступно", show_alert=True)
+        return
+    bot.answer_callback_query(call.id)
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(types.InlineKeyboardButton(
+        "💬 Выбрать чат через бота (открытка, письмо или ссылка)",
+        switch_inline_query_chosen_chat=types.SwitchInlineQueryChosenChat(
+            query=f"card_{occ_gift_code(order)}", allow_user_chats=True, allow_group_chats=True)))
+    kb.add(types.InlineKeyboardButton("📨 Готовые сообщения — переслать самой", callback_data=f"gift:fwd:{order['order_id']}"))
+    bot.send_message(
+        chat_id,
+        "Другие способы:\n\n"
+        "• Через бота можно отправить открытку, письмо текстом или только ссылку.\n"
+        "• «Готовые сообщения» — я пришлю открытку и письмо, ты пересылаешь их кнопкой «Переслать».\n"
+        f"• Ссылка на конверт в Telegram: <code>{occ_gift_link(order)}</code>\n"
+        f"• Ссылка для WhatsApp и браузера: <code>{occ_web_envelope(order)}</code>",
+        parse_mode="HTML", reply_markup=kb, disable_web_page_preview=True)
 
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("gift:fwd:"))
@@ -3899,10 +3917,10 @@ def envelope_order(code):
     return order if order and order.get("status") == "done" else None
 
 
-def envelope_html(title, body):
+def envelope_html(title, body, head=""):
     return ('<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" '
             'content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">'
-            f'<title>{esc(title)}</title><style>{ENVELOPE_CSS}</style></head><body><div class="w">{body}</div></body></html>')
+            f'{head}<title>{esc(title)}</title><style>{ENVELOPE_CSS}</style></head><body><div class="w">{body}</div></body></html>')
 
 
 @app.route("/e/<code>", methods=["GET"])
@@ -3911,10 +3929,19 @@ def envelope_closed(code):
     if not order:
         return envelope_html("Конверт не найден", "<h2>Конверт не найден 😔</h2><p>Возможно, ссылка скопирована не полностью.</p>"), 404
     name, who = order.get("gift_for") or "", order.get("sign") or "близкого человека"
+    title = f"💌 {name}, тебе письмо от {who}" if name else f"💌 Тебе письмо от {who}"
+    base = site_pages.SITE_URL
+    desc = "Внутри — открытка и несколько слов, написанных специально для тебя."
+    head = (f'<meta property="og:type" content="website"><meta property="og:title" content="{esc(title)}">'
+            f'<meta property="og:description" content="{esc(desc)}">'
+            f'<meta property="og:image" content="{base}/e/{esc(code)}.jpg">'
+            f'<meta property="og:url" content="{base}/e/{esc(code)}"><meta name="twitter:card" content="summary_large_image">')
     return envelope_html("Тебе письмо 💌",
                          f'<h1>💌 {esc(name) + ", тебе" if name else "Тебе"} письмо</h1>'
-                         f'<p>От <b>{esc(who)}</b>. Внутри — открытка и несколько слов, написанных специально для тебя.</p>'
-                         f'<a class="b" href="/e/{esc(code)}/open">✉️ Вскрыть конверт</a>')
+                         f'<p>От <b>{esc(who)}</b>. {desc}</p>'
+                         f'<a class="b" href="/e/{esc(code)}/open">✉️ Вскрыть конверт</a>'
+                         f'<p class="f">Есть Telegram? <a href="https://t.me/{BOT_USERNAME}?start=g_{esc(code)}">'
+                         'Открыть письмо там</a></p>', head)
 
 
 @app.route("/e/<code>/open", methods=["GET"])

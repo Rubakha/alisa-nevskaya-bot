@@ -85,7 +85,13 @@ m.successful_payment = pay
 B.on_paid(m)
 order = B.get_order(order_id)
 assert order["status"] == "done" and order.get("gift_code"), order
-assert any(s[0] == "send_message" and s[1][0] == 500 and "g_" + order["gift_code"] in s[1][1] for s in SENT)
+def _urls(s):
+    mk = s[2].get("reply_markup")
+    return [getattr(b, "url", "") or "" for row in getattr(mk, "keyboard", []) for b in row]
+
+
+assert any(s[0] == "send_message" and s[1][0] == 500 and any("t.me/share/url" in u and "%2Fe%2F" + order["gift_code"] in u
+                                                          for u in _urls(s)) for s in SENT), "кнопка «Отправить» ведёт на конверт"
 
 # получатель вскрывает конверт
 B.cmd_start(msg("/start g_" + order["gift_code"], chat=777))

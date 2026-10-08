@@ -196,7 +196,7 @@ for payload, label, product in [("ad_tgchannel", "ad_tgchannel", "birthday"), ("
     order = buy_and_pay(chat, product)
     assert order["status"] == "done" and order["source"] == label, (payload, order)
     assert order["price_rub"] == OCC.PRODUCTS[product]["price"] and order.get("gift_code"), order
-    assert any("Оплата прошла" in t for t in texts(chat)) and any("Как подарить" in t for t in texts(chat))
+    assert any("Оплата прошла" in t for t in texts(chat)) and any("Письмо готово" in t for t in texts(chat))
     assert B.STATES.get(chat) is None
 rows, total = S.report(7)
 assert {"ad_tgchannel", "vkads_father", "ig_love"} <= {r["source"] for r in rows}
@@ -269,7 +269,7 @@ B.STATES.clear()                                # «перезапуск»: ди
 PAYMENTS[pid].update(status="succeeded", paid=True)
 assert B.yk_check_order(oid) == "succeeded"     # то, что делает фоновый опрос после старта
 o = B.get_order(oid)
-assert o["status"] == "done" and o.get("gift_code") and any("Как подарить" in t for t in texts(rst))
+assert o["status"] == "done" and o.get("gift_code") and any("Письмо готово" in t for t in texts(rst))
 n = len(SENT)
 assert B.yk_check_order(oid) == "succeeded" and len(SENT) == n, "повторная проверка выдала письмо снова"
 # платёж на неверную сумму не выдаёт заказ
@@ -530,7 +530,7 @@ try:
 except _Stop:
     pass
 B.time.sleep = real_sleep
-assert B.get_order(oid)["status"] == "done" and any("Как подарить" in t for t in texts(can)), \
+assert B.get_order(oid)["status"] == "done" and any("Письмо готово" in t for t in texts(can)), \
     "клиент оплатил, а письмо не выдано"
 print("OK: повторное «Оплатить» и оплата отменённого заказа (ЮKassa)")
 
