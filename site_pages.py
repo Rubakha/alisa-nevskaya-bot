@@ -270,9 +270,9 @@ def sitemap():
 # Услуги для Яндекс «Услуги и предложения в поиске», категория «Исполнители»: цена — из каталога/договорённости
 FEED_OFFERS = [
     ("letter-parent", "Письмо папе или маме с открыткой", 199, "/pismo-pape-i-mame", "Личное письмо и открытка родителям: Алиса собирает текст из ваших деталей, превью до оплаты."),
-    ("card-personal", "Открытка с личным текстом", 249, "/otkrytka-mame-s-lichnym-tekstom", "Цифровая открытка с вашими словами к любому поводу, ссылка-конверт для отправки в мессенджер."),
+    ("card-personal", "Открытка с личным текстом", 199, "/otkrytka-mame-s-lichnym-tekstom", "Цифровая открытка с вашими словами к любому поводу, ссылка-конверт для отправки в мессенджер."),
     ("letter-group", "Групповое письмо от всех", 399, "/otkrytka-blagodarnost-uchitelyu-vrachu", "Одно письмо от нескольких человек: каждый добавляет свои слова, Алиса собирает общий текст."),
-    ("christmas-letter", "Рождественское письмо с открыткой", 249, "/rozhdestvenskoe-pismo", "Тёплое рождественское письмо и открытка с вашими словами для близких, бережно для верующих и нейтрально для остальных."),
+    ("christmas-letter", "Рождественское письмо с открыткой", 199, "/rozhdestvenskoe-pismo", "Тёплое рождественское письмо и открытка с вашими словами для близких, бережно для верующих и нейтрально для остальных."),
     ("santa-letter", "Именное письмо от Деда Мороза ребёнку", 249, "/pismo/pismo-ot-deda-moroza-rebenku", "Письмо от Деда Мороза по имени с настоящими успехами ребёнка."),
 ]
 
@@ -295,9 +295,19 @@ def robots():
     return Response(f"User-agent: *\nDisallow: /stats/\nDisallow: /e/\nAllow: /\nSitemap: {SITE_URL}/sitemap.xml\n", mimetype="text/plain")
 
 
+def card_path(key):
+    """Картинка повода для сайта: утверждённый первый фон assets/postcards/<повод>/001.jpg
+    (раньше лежал плоско <повод>.jpg — оба варианта поддержаны)."""
+    key = os.path.basename(key)
+    for path in (os.path.join(CARDS, key, "001.jpg"), os.path.join(CARDS, f"{key}.jpg")):
+        if os.path.exists(path):
+            return path
+    return None
+
+
 def card(key):
-    path = os.path.join(CARDS, f"{os.path.basename(key)}.jpg")
-    if not os.path.exists(path):
+    path = card_path(key)
+    if not path:
         abort(404)
     return send_file(path, mimetype="image/jpeg", max_age=86400)
 

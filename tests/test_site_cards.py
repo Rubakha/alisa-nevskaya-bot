@@ -55,7 +55,23 @@ r = c.get("/feed.yml")
 assert r.status_code == 200
 root = ET.fromstring(r.get_data())
 offers = root.findall(".//offer")
-assert [o.find("price").text for o in offers] == ["199", "249", "399", "249", "249"]
+assert [o.find("price").text for o in offers] == ["199", "199", "399", "199", "249"]
 assert all(o.find("url").text.startswith(SP.SITE_URL) for o in offers)
 assert root.find(".//category").text == "Исполнители"
+# цены на сайте и в фиде = цены бота: у каждого оффера цена не выше «от» цены повода в боте
+prices = {k: p["price"] for k, p in OCC.PRODUCTS.items()}
+assert [o.find("price").text for o in offers][3] == str(prices["newyear"]), "рождественское письмо = повод newyear"
+assert [o.find("price").text for o in offers][4] == str(prices["santa"])
+# картинки: каждый повод отдаёт 200, а все /card/*.jpg, на которые ссылаются страницы, существуют
+for key in OCC.CATALOG_ORDER:
+    assert c.get(f"/card/{key}.jpg").status_code == 200, key
+    assert c.get(f"/card/{key}.jpg").mimetype == "image/jpeg"
+seen = set()
+pages = ["/", "/den-otca"] + [f"/{s}" for s in CARDS] + [f"/pismo/{v['slug']}" for v in SP.PAGES.values()]
+for u in pages:
+    seen |= set(re.findall(r'/card/([a-z0-9_-]+)\.jpg', c.get(u).get_data(as_text=True)))
+assert seen, "на страницах есть картинки открыток"
+for key in seen:
+    assert c.get(f"/card/{key}.jpg").status_code == 200, key
+assert c.get("/card/nonexistent.jpg").status_code == 404
 print("OK:", len(CARDS), "страниц")
