@@ -19,6 +19,7 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 FONTS = os.path.join(BASE, "assets", "fonts")
 BGS = os.path.join(BASE, "assets", "postcards")
 PROPS = os.path.join(BASE, "assets", "props")
+AI_DIR = os.path.join(BASE, "data", "ai_cards")  # переопределяется ботом: DATA_DIR/ai_cards (ссылки «ai:<заказ>_<n>»)
 
 W, H = 1080, 1350
 PHOTO_H = 800
@@ -223,7 +224,10 @@ def compose_custom(photo, spec):
 def _background(product_key, card_ref=None):
     ref = card_ref or first_ref(product_key)
     base, seed = split_ref(ref)
-    path = bg_path(base) if base else ""
+    if base.startswith("ai:"):  # картинка, нарисованная клиентом в генераторе
+        path = os.path.join(AI_DIR, re.sub(r"[^A-Za-z0-9_-]", "", base[3:]) + ".jpg")
+    else:
+        path = bg_path(base) if base else ""
     if not os.path.exists(path):
         return Image.new("RGB", (W, PHOTO_H), (200, 180, 160))
     im = Image.open(path).convert("RGB")

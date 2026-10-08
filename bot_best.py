@@ -26,6 +26,7 @@ from telebot import TeleBot, types
 from telebot.types import LabeledPrice, Update
 
 import calendar_reminders
+import ai_card
 import cardanim
 import cardbase
 import constructor
@@ -2363,6 +2364,8 @@ def cmd_card_stats(message):
         f"Оплачено: {r['paid']} (конверсия {r['conversion']}%)\n"
         f"«Другая картинка»: {r['pc_next']}\n"
         f"Конструктор: открыли {r['cc_open']}, закончили {r['cc_done']}, оплатили со своей картинкой {r['cc_paid']}\n"
+        f"ИИ-картинки: {'включены' if ai_card.report()['enabled'] else 'выключены (нет ключа WaveSpeed)'}, "
+        f"нарисовано {ai_card.report()['generated']} (≈ {ai_card.report()['rub']} ₽)\n"
         f"Перегенераций текста: {r['retext']} + по пожеланию {r['retext_wish']}\n\n"
         f"Фоны в базе: активных {st.get('active', 0)}, на проверке {st.get('review', 0)}, "
         f"убрано {st.get('retired', 0)}\n\nЛучшие фоны:\n{top}",
@@ -2471,6 +2474,10 @@ def occ_deliver(chat_id, order):
         f"<code>{link}</code>\n"
         "Или просто перешли ему открытку и письмо выше.",
         parse_mode="HTML", reply_markup=kb)
+    try:
+        ai_card.offer(chat_id, order)
+    except Exception as exc:
+        log.error("ai card offer: %s", exc)
     try:
         calendar_reminders.offer_after_order(chat_id, order)
     except Exception as exc:
@@ -3792,6 +3799,7 @@ def start_autobackup():
 
 group_letters.register(sys.modules[__name__])  # до fallback: его обработчик ловит любой текст
 constructor.register(sys.modules[__name__])
+ai_card.register(sys.modules[__name__])
 calendar_reminders.register(sys.modules[__name__])
 partners.register(sys.modules[__name__])
 sources.register(sys.modules[__name__])
