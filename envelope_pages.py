@@ -131,8 +131,7 @@ def closed_html(order, code, site, bot_username):
     body = (f'<div class="env"><div class="flap"></div><div class="seal">А</div></div>'
             f'<h1>💌 {esc(name) + ", тебе" if name else "Тебе"} письмо</h1>'
             f'<p class="sub">От <b>{esc(who)}</b>. {esc(desc)}</p>'
-            f'<a class="btn" href="/e/{esc(code)}/open">✉️ Вскрыть письмо от {esc(who)}</a>'
-            f'<p class="f">Есть Telegram? <a href="https://t.me/{esc(bot_username)}?start=g_{esc(code)}">Открыть письмо там</a></p>')
+            f'<a class="btn" href="/e/{esc(code)}/open">✉️ Вскрыть письмо от {esc(who)}</a>')
     script = f"<script>{FX % {'ms': 6000}}</script>"
     return _page("Тебе письмо 💌", head, body, script)
 

@@ -74,18 +74,18 @@ SITE = B.site_pages.SITE_URL
 res = M.prepared_result(order, code, SITE)
 assert res["type"] == "photo" and res["photo_file_id"] == "PHOTO1" and "caption" not in res
 btn = res["reply_markup"]["inline_keyboard"][0][0]
-assert btn == {"text": "💌 Вскрыть письмо от Серёжи", "url": f"https://t.me/{B.BOT_USERNAME}?start=g_{code}"}, btn
+assert btn == {"text": "💌 Вскрыть письмо от Серёжи", "url": f"{SITE}/e/{code}"}, btn
 order["card_anim_file_id"] = "GIF1"
 assert M.prepared_result(order, code, SITE)["type"] == "gif"
 assert M.prepared_result({**order, "card_file_id": None, "card_anim_file_id": None}, code, SITE)["type"] == "article"
 order["card_anim_file_id"] = None
 
-# переключатель: ENVELOPE_LINK=web — страница-конверт на сайте
-os.environ["ENVELOPE_LINK"] = "web"
-web_res = M.prepared_result(order, code, SITE)
-assert web_res["reply_markup"]["inline_keyboard"][0][0]["url"] == f"{SITE}/e/{code}"
+# аварийный переключатель: ENVELOPE_LINK=bot — конверт внутри бота (если сайт недоступен)
+os.environ["ENVELOPE_LINK"] = "bot"
+bot_res = M.prepared_result(order, code, SITE)
+assert bot_res["reply_markup"]["inline_keyboard"][0][0]["url"].startswith("https://t.me/")
 os.environ.pop("ENVELOPE_LINK")
-assert M.prepared_result(order, code, SITE)["reply_markup"]["inline_keyboard"][0][0]["url"].startswith("https://t.me/")
+assert M.prepared_result(order, code, SITE)["reply_markup"]["inline_keyboard"][0][0]["url"] == f"{SITE}/e/{code}"
 
 # ── эндпоинты ──
 client = B.app.test_client()
@@ -128,7 +128,7 @@ closed = client.get(f"/e/{code}").get_data(as_text=True)
 assert "Вскрыть письмо от Серёжи" in closed and 'class="seal"' in closed
 assert f'og:image" content="{SITE}/e/{code}.jpg"' in closed
 assert 'og:title" content="💌 Любимая, тебе письмо от Серёжи"' in closed
-assert f"start=g_{code}" in closed
+assert "t.me" not in closed.split("<body")[1].split("<script")[0], "со страницы конверта нет ссылок в бота"
 
 opened = client.get(f"/e/{code}/open", headers={"User-Agent": "TelegramBot (like TwitterBot)"})
 assert opened.status_code == 200

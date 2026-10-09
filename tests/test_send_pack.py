@@ -129,7 +129,7 @@ html = page.get_data(as_text=True)
 assert page.status_code == 200
 assert f'property="og:image" content="{B.site_pages.SITE_URL}/e/{code}.jpg"' in html
 assert 'property="og:title" content="💌 Катя, тебе письмо от Серёжи"' in html
-assert f"start=g_{code}" in html and "Вскрыть письмо от Серёжи" in html
+assert "start=g_" not in html and "Вскрыть письмо от Серёжи" in html
 img = B.app.test_client().get(f"/e/{code}.jpg")
 assert img.status_code == 200 and img.mimetype == "image/jpeg" and len(img.data) > 10000
 assert order.get("opened_at") is None and not B.get_order(order["order_id"]).get("opened_at"),     "превью ссылки не считается вскрытием"

@@ -2425,6 +2425,13 @@ def occ_gift_code(order):
 
 
 def occ_gift_link(order):
+    """Ссылка для получателя — красивая страница-конверт на сайте (не бот): там открытка, печать и анимация."""
+    import site_pages
+    return f"{site_pages.SITE_URL}/e/{occ_gift_code(order)}"
+
+
+def occ_bot_link(order):
+    """Конверт внутри бота (запасной вариант, если сайт недоступен: ENVELOPE_LINK=bot)."""
     return f"https://t.me/{BOT_USERNAME}?start=g_{occ_gift_code(order)}"
 
 
@@ -2665,8 +2672,7 @@ def occ_more_ways(call):
         "Другие способы:\n\n"
         "• Через бота можно отправить открытку, письмо текстом или только ссылку.\n"
         "• «Готовые сообщения» — я пришлю открытку и письмо, ты пересылаешь их кнопкой «Переслать».\n"
-        f"• Ссылка на конверт в Telegram: <code>{occ_gift_link(order)}</code>\n"
-        f"• Ссылка для WhatsApp и браузера: <code>{occ_web_envelope(order)}</code>",
+        f"• Ссылка на конверт (для любого мессенджера): <code>{occ_web_envelope(order)}</code>",
         parse_mode="HTML", reply_markup=kb, disable_web_page_preview=True)
 
 
