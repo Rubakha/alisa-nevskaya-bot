@@ -634,7 +634,9 @@ def cmd_start(message):
         occ_open_product(chat_id, parts[1][4:])
     elif len(parts) == 2 and parts[1].startswith(("w_", "v_")):  # переход с сайта / из услуг VK
         key = parts[1][2:]
-        if key in OCC.PRODUCTS:
+        if key == "group":  # страница про групповое письмо
+            group_letters.open_menu(chat_id)
+        elif key in OCC.PRODUCTS:
             occ_open_product(chat_id, key)
         else:
             occ_open_catalog(chat_id)
