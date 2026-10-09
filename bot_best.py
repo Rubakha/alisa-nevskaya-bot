@@ -37,6 +37,7 @@ import occasions as OCC
 import partners
 import postcards
 import sources
+import voice_flow
 
 try:
     import ai_assistant as AI
@@ -1446,6 +1447,10 @@ def fulfill_order(chat_id, order_id, charge_id, email):
         notify_admin_paid(order)
         return
 
+    if order.get("product") == voice_flow.VL.ADDON_KEY:  # доплата за озвучку уже выданного письма
+        voice_flow.fulfill_addon(chat_id, order)
+        return
+
     if order.get("product") == OCC.PACK["key"]:
         profile = get_client(chat_id) or {}
         profile["credits"] = profile.get("credits", 0) + OCC.PACK["credits"]
@@ -1759,6 +1764,7 @@ def occ_catalog_markup():
         f"{OCC.PACK['icon']} {OCC.PACK['title']} · {OCC.PACK['price']}₽", callback_data="occ:pack"))
     kb.add(types.InlineKeyboardButton(
         f"{OCC.DOC['icon']} {OCC.DOC['title']} · {OCC.DOC['price']}₽", callback_data="occ:doc"))
+    voice_flow.catalog_button(kb)  # «Голосовое письмо» — только если настроен ElevenLabs
     kb.add(types.InlineKeyboardButton(
         f"👥 Письмо от всех нас · {group_letters.GROUP_PRICE}₽", callback_data="grp:new"))
     kb.add(types.InlineKeyboardButton(
@@ -1979,7 +1985,7 @@ def occ_masked_preview(letter):
 
 def occ_preview_markup(state):
     p = OCC.PRODUCTS[state["product"]]
-    credits = 0 if state.get("group") else (get_client(state.get("chat_id", 0)) or {}).get("credits", 0)
+    credits = 0 if state.get("group") or state.get("voice") else (get_client(state.get("chat_id", 0)) or {}).get("credits", 0)
     kb = types.InlineKeyboardMarkup(row_width=1)
     if credits:
         kb.add(types.InlineKeyboardButton(f"🎁 Забрать по набору (осталось {credits})",
@@ -1987,6 +1993,7 @@ def occ_preview_markup(state):
     q = partners.quote(state.get("chat_id", 0), price_base(state), state.get("promo"))
     kb.add(types.InlineKeyboardButton(f"💳 Оплатить — {partners.button_price(q)}", callback_data="occ:buy"))
     kb.add(types.InlineKeyboardButton("🎟 Есть промокод", callback_data="pr:enter"))
+    voice_flow.add_preview_toggle(kb, state)
     left = max(0, FREE_RETEXTS - state.get("retexts", 0))
     label = f"✏️ Изменить текст (ещё {left})" if left else "✏️ Изменить текст — по твоему пожеланию"
     if left == 0 and state.get("wish_used"):
@@ -2168,6 +2175,7 @@ def occ_make_order(chat_id, user, state, status="pending", price=None):
         "status": status,
         "is_gift": True,
         "gift_for": state.get("name"),
+        "voice": bool(state.get("voice")), "voice_gender": state.get("voice_gender"),
         "created_at": now_msk().isoformat(),
         "paid_at": None,
         "delivered_at": None,
@@ -2214,7 +2222,7 @@ def occ_credit(call):
     state = STATES.get(chat_id) or {}
     profile = get_client(chat_id) or {}
     bot.answer_callback_query(call.id)
-    if state.get("step") != "occ_paywall" or profile.get("credits", 0) < 1 or state.get("group"):
+    if state.get("step") != "occ_paywall" or profile.get("credits", 0) < 1 or state.get("group") or state.get("voice"):
         safe_edit(call, f"Не получилось — начни заново: «{OCC_BUTTON}».")
         return
     profile["credits"] -= 1
@@ -2446,6 +2454,7 @@ def occ_send_options(chat_id, order):
         "⚡ Быстрая отправка (в один тап)",
         web_app=types.WebAppInfo(url=f"{site_pages.SITE_URL}/share/{occ_gift_code(order)}")))
     kb.add(types.InlineKeyboardButton("⋯ Другие способы", callback_data=f"gift:more:{order['order_id']}"))
+    voice_flow.add_upsell(kb, order)
     kb.add(partners.friend_gift_markup(order["chat_id"]))
     kb.add(types.InlineKeyboardButton("🎀 Ещё одно письмо с открыткой", callback_data="occ:catalog"))
     bot.send_message(
@@ -2528,6 +2537,7 @@ def occ_deliver(chat_id, order):
     send_long(chat_id, order["letter_text"], markup=rate_kb)
 
     occ_send_options(chat_id, order)
+    voice_flow.deliver_if_voice(chat_id, order)
     try:
         calendar_reminders.offer_after_order(chat_id, order)
     except Exception as exc:
@@ -3985,6 +3995,7 @@ ai_card.register(sys.modules[__name__])
 calendar_reminders.register(sys.modules[__name__])
 partners.register(sys.modules[__name__])
 sources.register(sys.modules[__name__])
+voice_flow.register(sys.modules[__name__])
 
 
 @bot.message_handler(func=lambda m: True, content_types=["text"])
