@@ -1980,7 +1980,7 @@ def occ_preview_markup(state):
 def occ_preview_text(state):
     lines = partners.price_lines(partners.quote(state.get("chat_id", 0), price_base(state), state.get("promo")))
     return (occ_masked_preview(state["letter"])
-            + "\n\n🔒 Вторая половина письма, чистая открытка без надписи «превью» "
+            + "\n\n🔒 Продолжение письма, чистая открытка без надписи «превью» "
               "и ссылка-конверт для получателя — после оплаты."
             + (f"\n\n{lines}" if lines else ""))
 

@@ -427,7 +427,7 @@ assert B.STATES[lng]["idx"] == 1
 LONG_LETTER[0] = "Дорогой папа, " + "слово & <i> " * 300
 B.STATES.pop(lng)
 st = to_preview(lng, "family")
-previews = [t for t in texts(lng) if "Вторая половина" in t]
+previews = [t for t in texts(lng) if "Продолжение письма" in t]
 assert previews and all(len(t) <= 4096 for t in previews), [len(t) for t in previews]
 B.occ_buy(call("occ:buy", lng))
 pay_invoice(lng, invoices(lng)[-1])
