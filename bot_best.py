@@ -2446,13 +2446,11 @@ def occ_send_options(chat_id, order):
     name = (order.get("gift_for") or "").strip()
     label = f"💌 Отправить {name}" if name and len(name) <= 20 else "💌 Отправить получателю"
     kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(types.InlineKeyboardButton(label, url=occ_share_url(order)))
     kb.add(types.InlineKeyboardButton(
-        label,
+        "💬 Отправить открыткой через чат",
         switch_inline_query_chosen_chat=types.SwitchInlineQueryChosenChat(
             query=f"card_{occ_gift_code(order)}", allow_user_chats=True, allow_group_chats=True)))
-    kb.add(types.InlineKeyboardButton(
-        "⚡ Быстрая отправка (в один тап)",
-        web_app=types.WebAppInfo(url=f"{site_pages.SITE_URL}/share/{occ_gift_code(order)}")))
     kb.add(types.InlineKeyboardButton("⋯ Другие способы", callback_data=f"gift:more:{order['order_id']}"))
     voice_flow.add_upsell(kb, order)
     kb.add(partners.friend_gift_markup(order["chat_id"]))
@@ -2461,7 +2459,8 @@ def occ_send_options(chat_id, order):
         chat_id,
         "✉️ <b>Письмо готово — отправь его</b>\n\n"
         "1. Нажми «Отправить» и выбери человека.\n"
-        "2. Коснись открытки в списке — она уйдёт с кнопкой «Вскрыть письмо».\n\n"
+        "2. В поле уже будет текст и красивая ссылка-конверт — просто нажми отправить.\n\n"
+        "Получатель увидит открытку и откроет письмо одним касанием. "
         "Отправить можно в любое время и сколько угодно раз. Я сообщу тебе, когда он откроет письмо ✨",
         parse_mode="HTML", reply_markup=kb)
 
@@ -2625,11 +2624,19 @@ def occ_gift_teaser(order):
             + "\nВнутри — несколько слов, написанных специально для тебя.")
 
 
+def occ_share_text(order):
+    """Текст рядом со ссылкой-конвертом: получателю понятно, что нажимать."""
+    who = envelope_pages.from_whom(order)
+    name = (order.get("gift_for") or "").strip()
+    head = f"💌 {name}, тебе письмо от {who}" if name else f"💌 Тебе письмо от {who}"
+    return head + "\nНажми на ссылку ниже — конверт откроется, и ты прочитаешь его 👇"
+
+
 def occ_share_url(order):
     """Одна кнопка «Отправить»: Telegram откроет выбор человека, в поле уже будут текст и ссылка на конверт,
     а у ссылки — превью с открыткой этого заказа (og:image страницы /e/<код>)."""
     return ("https://t.me/share/url?url=" + urllib.parse.quote(occ_web_envelope(order), safe="")
-            + "&text=" + urllib.parse.quote(occ_gift_teaser(order), safe=""))
+            + "&text=" + urllib.parse.quote(occ_share_text(order), safe=""))
 
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("gift:more:"))
@@ -2649,7 +2656,9 @@ def occ_more_ways(call):
         "📝 Письмо текстом или ссылка (через чат)",
         switch_inline_query_chosen_chat=types.SwitchInlineQueryChosenChat(
             query=f"alt_{occ_gift_code(order)}", allow_user_chats=True, allow_group_chats=True)))
-    kb.add(types.InlineKeyboardButton("📤 Отправить обычной ссылкой", url=occ_share_url(order)))
+    kb.add(types.InlineKeyboardButton(
+        "⚡ Быстрая отправка (мини-приложение)",
+        web_app=types.WebAppInfo(url=f"{site_pages.SITE_URL}/share/{occ_gift_code(order)}")))
     kb.add(types.InlineKeyboardButton("📨 Готовые сообщения — переслать самой", callback_data=f"gift:fwd:{order['order_id']}"))
     bot.send_message(
         chat_id,

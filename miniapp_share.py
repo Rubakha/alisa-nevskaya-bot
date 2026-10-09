@@ -102,7 +102,7 @@ function share(){
   answered=false;clearTimeout(timer);
   try{tg.shareMessage(msgId,function(sent){answered=true;clearTimeout(timer);
     if(sent){tg.close()}else{s.textContent='Отправка отменена.';show(go)}})}
-  catch(e){fail('В этой версии Telegram нет быстрой отправки. Нажми «Вернуться в чат» и отправь кнопкой «Отправить» там.');return}
+  catch(e){fail('Быстрая отправка в этом Telegram не сработала ('+(e&&e.message||e)+'). Нажми «Отправить обычной ссылкой» или вернись в чат.');return}
   // окно выбора не открылось и ответа нет — даём нажать вручную и показываем запасные пути
   timer=setTimeout(function(){if(!answered){help('Окно выбора не открылось. Нажми кнопку ещё раз или отправь по-другому.');show(go)}},4000);
 }

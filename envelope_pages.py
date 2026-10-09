@@ -122,7 +122,7 @@ def closed_html(order, code, site, bot_username):
     """Закрытый конверт: печать, кнопка «Вскрыть письмо от …», og-метки для превью."""
     name, who = _names(order)
     title = f"💌 {name}, тебе письмо от {who}" if name else f"💌 Тебе письмо от {who}"
-    desc = "Внутри — открытка и несколько слов, написанных специально для тебя."
+    desc = "Нажми — и вскроешь конверт: внутри открытка и слова, написанные специально для тебя."
     esc = html.escape
     head = (f'<meta property="og:type" content="website"><meta property="og:title" content="{esc(title)}">'
             f'<meta property="og:description" content="{esc(desc)}">'

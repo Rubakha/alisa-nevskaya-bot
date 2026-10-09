@@ -112,15 +112,15 @@ for s_ in SENT:
 assert kb is not None
 first = kb.keyboard[0][0]
 assert first.text == "💌 Отправить Катя"
-assert first.switch_inline_query_chosen_chat.query == "card_" + code, "главная кнопка — отправка через чат (сайт не нужен)"
-quick = kb.keyboard[1][0]
-assert quick.web_app.url == f"{B.site_pages.SITE_URL}/share/{code}", "быстрая отправка — мини-приложение"
-share = B.occ_share_url(order)   # запасная ссылка «поделиться» живёт в «Других способах»
+assert first.url == B.occ_share_url(order), "главная кнопка — красивая ссылка-конверт"
+chat_btn = kb.keyboard[1][0]
+assert chat_btn.switch_inline_query_chosen_chat.query == "card_" + code, "отправка открыткой через чат — второй кнопкой"
+share = B.occ_share_url(order)   
 assert share.startswith("https://t.me/share/url?url=")
 import urllib.parse as up  # noqa: E402
 qs = up.parse_qs(up.urlparse(share).query)
 assert qs["url"][0] == B.occ_web_envelope(order) and "/e/" in qs["url"][0]
-assert "Катя, тебе письмо от Серёжи" in qs["text"][0]
+assert "Катя, тебе письмо от Серёжи" in qs["text"][0] and "Нажми на ссылку" in qs["text"][0]
 assert "gift:more:" + order["order_id"] in [getattr(b, "callback_data", None) for row in kb.keyboard for b in row]
 
 # превью ссылки: на странице конверта og:image именно этой открытки; для Telegram-получателя есть кнопка в бота
@@ -169,9 +169,9 @@ for _ in range(2):   # второй раз тоже можно
     assert [s_ for s_ in SENT if s_[0] == "send_photo"], "открытка показана снова"
     opts = [s_ for s_ in SENT if s_[0] == "send_message" and "Письмо готово" in str(s_[1])]
     assert opts, "кнопки отправки показаны снова"
-    labels = [(b.text, getattr(b, "web_app", None) is not None or getattr(b, "switch_inline_query_chosen_chat", None) is not None)
+    labels = [(b.text, getattr(b, "url", None) is not None or getattr(b, "switch_inline_query_chosen_chat", None) is not None)
               for row in opts[0][2]["reply_markup"].keyboard for b in row]
-    assert any("Отправить Катя" in t and w for t, w in labels) and any("Быстрая отправка" in t and w for t, w in labels)
+    assert any("Отправить Катя" in t and w for t, w in labels) and any("через чат" in t and w for t, w in labels)
 # устаревший file_id: открытка собирается заново и сохраняется
 def bad_photo(chat, photo, **k):
     if photo == "PH":

@@ -95,8 +95,9 @@ def _urls(s):
     return out
 
 
-assert any(s[0] == "send_message" and s[1][0] == 500 and any("/share/" + order["gift_code"] in u for u in _urls(s))
-           for s in SENT), "кнопка «Отправить» открывает мини-приложение отправки этого письма"
+assert any(s[0] == "send_message" and s[1][0] == 500 and any("t.me/share/url" in u and "%2Fe%2F" + order["gift_code"] in u
+                                                            for u in _urls(s))
+           for s in SENT), "кнопка «Отправить» — ссылка-конверт этого письма"
 
 # получатель вскрывает конверт
 B.cmd_start(msg("/start g_" + order["gift_code"], chat=777))
