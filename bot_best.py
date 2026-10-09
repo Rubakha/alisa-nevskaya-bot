@@ -733,6 +733,9 @@ def ask_next_question(chat_id):
     bot.send_chat_action(chat_id, "typing")
     question = AI.diagnostic_question(pain_title, state["history"]) if (AI and AI.available()) else \
         "Расскажи чуть больше — своими словами, как получится."
+    if question.startswith("[ai]"):  # сбой ИИ — клиенту не показываем текст ошибки
+        log.error("diagnostic question failed: %s", question)
+        question = "Расскажи чуть больше — своими словами, как получится."
     state["q_index"] += 1
     state["current_q"] = question
     state["step"] = "diag_q"
@@ -750,6 +753,9 @@ def finish_diagnostics(chat_id, state):
         mirror = AI.mirror_reflection(pain_title, answers)
     else:
         mirror = "Сейчас сложно всё разложить по полочкам — и это тоже честно."
+    if mirror.startswith("[ai]"):
+        log.error("mirror failed: %s", mirror)
+        mirror = "Сейчас сложно всё разложить по полочкам — и это тоже честно."
     bot.send_message(chat_id, mirror)
     state["mirror_text"] = mirror
     save_anketa_update(state, mirror_text=mirror)
@@ -759,6 +765,12 @@ def finish_diagnostics(chat_id, state):
         letter = AI.generate_letter(pain_title, answers, mirror, state.get("gift_for"))
     else:
         letter = "[ai] Помощник выключен — письмо не сгенерировано."
+    if letter.startswith("[ai]"):  # сбой ИИ: не показываем paywall с текстом ошибки
+        STATES.pop(chat_id, None)
+        bot.send_message(chat_id, "Не получилось написать письмо прямо сейчас 😔 "
+                                  "Попробуй через пару минут или напиши в «❓ Помощь».")
+        log.error("letter generation failed: %s", letter)
+        return
     state["letter_text"] = letter
     state["step"] = "paywall"
     save_anketa_update(state, letter_text=letter)
@@ -780,7 +792,7 @@ def price_base(state):
 
 def diag_paywall_text(state):
     letter = state["letter_text"]
-    preview = letter if len(letter) <= 350 else letter[:350] + "…"
+    preview = letter if len(letter) <= 175 else letter[:175] + "…"
     q = partners.quote(state["chat_id"], price_base(state), state.get("promo"))
     lines = partners.price_lines(q)
     return (f"{esc(preview)}\n\n🔒 Дальше — продолжение письма, целиком, у тебя в чате."
@@ -921,6 +933,12 @@ def order_create(call):
         bot.answer_callback_query(call.id)
         return
 
+    prev = get_order(state["order_id"]) if state.get("order_id") else None
+    if prev and prev.get("status") == "pending" and state.get("order_sig") == (letter, state.get("promo")):
+        bot.answer_callback_query(call.id)
+        send_order_invoice(chat_id, prev)  # повторный тап «Получить письмо»: тот же заказ, а не второй
+        return
+
     profile = upsert_client(call.from_user)
     order_id = new_order_id()
     order = {
@@ -945,6 +963,7 @@ def order_create(call):
     partners.apply_to_order(order, chat_id, state.get("promo"))
     save_order(order)
     save_anketa_update(state, order_id=order_id)
+    state["order_id"], state["order_sig"] = order_id, (letter, state.get("promo"))
     bot.answer_callback_query(call.id)
 
     if order["price_rub"] <= 0:  # скидка и баланс покрыли всё — выдаём без оплаты
@@ -1088,6 +1107,8 @@ def send_yk_payment(chat_id, order, email=None):
         )
         return False
 
+    if url is None:  # заказ уже оплачен и выдан
+        return True
     kb = types.InlineKeyboardMarkup(row_width=1)
     kb.add(types.InlineKeyboardButton(f"💳 Оплатить {order['price_rub']}₽", url=url))
     kb.add(types.InlineKeyboardButton("✅ Я оплатил(а)", callback_data=f"yk:check:{order_id}"))
@@ -1106,6 +1127,14 @@ def yk_create(order, email, return_url):
     """Создаёт платёж ЮKassa для заказа (Telegram или VK) и возвращает ссылку на оплату."""
     order_id = order["order_id"]
     price = f"{order['price_rub']}.00"
+    if order.get("yk_payment_id"):  # повторное «Оплатить»: не плодим платежи, иначе оплата по старой ссылке потеряется
+        prev = yk_request("GET", f"{YK_API}/{order['yk_payment_id']}")
+        if prev.get("status") == "succeeded" and prev.get("paid"):
+            yk_check_order(order_id)  # уже оплачен — выдаём, новая ссылка не нужна
+            return None
+        url = (prev.get("confirmation") or {}).get("confirmation_url")
+        if prev.get("status") == "pending" and url and (prev.get("amount") or {}).get("value") == price:
+            return url
     payload = {
         "amount": {"value": price, "currency": "RUB"},
         "capture": True,
@@ -1140,7 +1169,7 @@ def yk_check_order(order_id):
         order = get_order(order_id)
         if not order or not order.get("yk_payment_id"):
             return None
-        if order.get("status") != "pending":
+        if order.get("status") not in ("pending", "cancelled"):  # отменённый заказ тоже сверяем: страница оплаты могла быть открыта
             return "succeeded"
         payment = yk_request("GET", f"{YK_API}/{order['yk_payment_id']}")
         status = payment.get("status")
@@ -1184,7 +1213,7 @@ def yk_poll_loop():
     while True:
         try:
             for o in all_orders():
-                if o.get("status") != "pending" or not o.get("yk_payment_id"):
+                if o.get("status") not in ("pending", "cancelled") or not o.get("yk_payment_id"):
                     continue
                 created = datetime.fromisoformat(o.get("yk_created_at") or now_msk().isoformat())
                 if now_msk() - created > timedelta(hours=24):
@@ -1353,6 +1382,10 @@ def fulfill_order(chat_id, order_id, charge_id, email):
             f"укажи номер: <code>{order_id}</code>",
             parse_mode="HTML",
         )
+        return
+
+    if order.get("status") == "done":  # повторная доставка апдейта об оплате (таймаут вебхука) — не выдаём второй раз
+        log.warning("fulfill_order: %s уже выдан, повтор пропущен", order_id)
         return
 
     order["status"] = "done"
@@ -1915,9 +1948,9 @@ def cardbase_pick(chat_id, key, seen):
 
 
 def occ_masked_preview(letter):
-    """Первая половина письма читается, вторая — «матовое стекло» из ▒ (спойлер Telegram не годится:
+    """Первая четверть письма читается, остальное — «матовое стекло» из ▒ (спойлер Telegram не годится:
     он открывается одним тапом)."""
-    cut = max(220, len(letter) // 2)
+    cut = max(110, len(letter) // 4)
     head = letter[:cut].rsplit(None, 1)[0] if " " in letter[:cut] else letter[:cut]
     tail = re.sub(r"\S", "▒", letter[len(head):]).strip()
     tail = re.sub(r"\n{3,}", "\n\n", tail)
@@ -1947,7 +1980,7 @@ def occ_preview_markup(state):
 def occ_preview_text(state):
     lines = partners.price_lines(partners.quote(state.get("chat_id", 0), price_base(state), state.get("promo")))
     return (occ_masked_preview(state["letter"])
-            + "\n\n🔒 Вторая половина письма, чистая открытка без надписи «превью» "
+            + "\n\n🔒 Продолжение письма, чистая открытка без надписи «превью» "
               "и ссылка-конверт для получателя — после оплаты."
             + (f"\n\n{lines}" if lines else ""))
 
@@ -2137,7 +2170,12 @@ def occ_buy(call):
         safe_edit(call, f"Заказ устарел. Начни заново: «{OCC_BUTTON}».")
         return
     state["step"] = "occ_paywall"
+    prev = get_order(state["order_id"]) if state.get("order_id") else None
+    if prev and prev.get("status") == "pending" and state.get("order_sig") == (state["letter"], state.get("promo")):
+        send_order_invoice(chat_id, prev)  # повторный тап «Оплатить»: тот же заказ, а не второй
+        return
     order = occ_make_order(chat_id, call.from_user, state)
+    state["order_id"], state["order_sig"] = order["order_id"], (state["letter"], state.get("promo"))
     cb_event(chat_id, "buy", state["product"], state.get("card_ref"))
     if order["price_rub"] <= 0:  # скидка и баланс покрыли всё — выдаём без оплаты
         notify_admin_new_order(order)
@@ -2202,6 +2240,14 @@ def occ_pack(call):
 
 
 def occ_doc_order(chat_id, user):
+    pending = pending_orders(chat_id)
+    if pending and pending[0].get("product") == OCC.DOC["key"]:  # повторный переход по ссылке papa_pdf
+        send_order_invoice(chat_id, pending[0])
+        return
+    if pending:
+        bot.send_message(chat_id, "⏳ Сначала оплати или отмени неоплаченный заказ.",
+                         reply_markup=pending_markup(pending[0]["order_id"]))
+        return
     profile = upsert_client(user)
     order = {
         "order_id": new_order_id(), "chat_id": chat_id, "name": profile["name"],
