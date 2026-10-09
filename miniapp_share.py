@@ -85,22 +85,42 @@ content="width=device-width,initial-scale=1,maximum-scale=1"><title>Отправ
 <style>body{margin:0;background:#f6f0e6;color:#3b2f2a;font:17px/1.5 Georgia,serif;display:flex;min-height:100vh;
 align-items:center;justify-content:center;text-align:center;padding:24px}a,button{display:none;margin:14px auto 0;padding:13px 24px;
 border:0;border-radius:999px;background:#8f2f2a;color:#fff;font:600 16px -apple-system,Segoe UI,sans-serif;text-decoration:none}
+button.alt,a.alt{background:#e7dccb;color:#3b2f2a}small{display:block;margin-top:18px;color:#8a7b6f;font:12px sans-serif}
 </style></head><body><div><div style="font-size:42px">💌</div><p id="s">Открываю выбор получателя…</p>
-<a id="fb" href="%(fallback)s">Отправить обычной ссылкой</a><button id="again">Выбрать ещё раз</button></div>
+<button id="go">💌 Выбрать получателя</button>
+<a id="fb" class="alt" href="%(fallback)s">Отправить обычной ссылкой</a><button id="chat" class="alt">Вернуться в чат с ботом</button>
+<small id="v"></small></div>
 <script>
-var tg=window.Telegram&&Telegram.WebApp,s=document.getElementById('s'),fb=document.getElementById('fb'),again=document.getElementById('again'),CODE=%(code)s;
-function fail(m){s.textContent=m;fb.style.display='inline-block'}
+var tg=window.Telegram&&Telegram.WebApp,s=document.getElementById('s'),fb=document.getElementById('fb'),go=document.getElementById('go'),
+chat=document.getElementById('chat'),CODE=%(code)s,msgId=null,answered=false,timer=null;
+function show(el){el.style.display='inline-block'}
+function help(m){s.textContent=m;show(fb);show(chat)}
+function fail(m){answered=true;clearTimeout(timer);help(m)}
 fb.onclick=function(e){if(tg&&tg.openTelegramLink){e.preventDefault();tg.openTelegramLink(fb.href);setTimeout(function(){tg.close()},300)}};
+chat.onclick=function(){if(tg)tg.close()};
+function share(){
+  answered=false;clearTimeout(timer);
+  try{tg.shareMessage(msgId,function(sent){answered=true;clearTimeout(timer);
+    if(sent){tg.close()}else{s.textContent='Отправка отменена.';show(go)}})}
+  catch(e){fail('В этой версии Telegram нет быстрой отправки. Нажми «Вернуться в чат» и отправь кнопкой «Отправить» там.');return}
+  // окно выбора не открылось и ответа нет — даём нажать вручную и показываем запасные пути
+  timer=setTimeout(function(){if(!answered){help('Окно выбора не открылось. Нажми кнопку ещё раз или отправь по-другому.');show(go)}},4000);
+}
+go.onclick=share;
+if(tg&&tg.onEvent){
+  tg.onEvent('shareMessageFailed',function(e){fail('Telegram не смог открыть отправку'+(e&&e.error?' ('+e.error+')':'')+'. Отправь по-другому.')});
+}
 function run(){
-  s.textContent='Открываю выбор получателя…';again.style.display='none';
+  s.textContent='Открываю выбор получателя…';go.style.display='none';
   fetch('/share/'+CODE+'/prepare',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({initData:tg.initData})})
   .then(function(r){return r.json()}).then(function(j){
     if(!j.id){fail(j.error||'Не получилось подготовить сообщение.');return}
     if(!tg.shareMessage){fail('В этой версии Telegram нет быстрой отправки. Можно отправить обычной ссылкой.');return}
-    tg.shareMessage(j.id,function(sent){if(sent){tg.close()}else{s.textContent='Отправка отменена.';again.style.display='inline-block'}});
+    msgId=j.id;share();
   }).catch(function(){fail('Нет связи. Попробуй ещё раз или отправь ссылкой.')});
 }
-if(!tg||!tg.initData){fail('Открой эту страницу кнопкой в боте Telegram.')}else{tg.ready();if(tg.expand)tg.expand();again.onclick=run;run()}
+if(!tg||!tg.initData){help('Открой эту страницу кнопкой в боте Telegram.')}
+else{tg.ready();if(tg.expand)tg.expand();document.getElementById('v').textContent='Telegram '+tg.version+' · '+tg.platform;run()}
 </script></body></html>"""
 
 
