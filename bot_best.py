@@ -792,7 +792,7 @@ def price_base(state):
 
 def diag_paywall_text(state):
     letter = state["letter_text"]
-    preview = letter if len(letter) <= 350 else letter[:350] + "…"
+    preview = letter if len(letter) <= 175 else letter[:175] + "…"
     q = partners.quote(state["chat_id"], price_base(state), state.get("promo"))
     lines = partners.price_lines(q)
     return (f"{esc(preview)}\n\n🔒 Дальше — продолжение письма, целиком, у тебя в чате."
@@ -1948,9 +1948,9 @@ def cardbase_pick(chat_id, key, seen):
 
 
 def occ_masked_preview(letter):
-    """Первая половина письма читается, вторая — «матовое стекло» из ▒ (спойлер Telegram не годится:
+    """Первая четверть письма читается, остальное — «матовое стекло» из ▒ (спойлер Telegram не годится:
     он открывается одним тапом)."""
-    cut = max(220, len(letter) // 2)
+    cut = max(110, len(letter) // 4)
     head = letter[:cut].rsplit(None, 1)[0] if " " in letter[:cut] else letter[:cut]
     tail = re.sub(r"\S", "▒", letter[len(head):]).strip()
     tail = re.sub(r"\n{3,}", "\n\n", tail)
