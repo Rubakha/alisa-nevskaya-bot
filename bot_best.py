@@ -93,6 +93,13 @@ ANKETAS_DIR = os.path.join(DATA_DIR, "anketas")
 EXPORTS_DIR = os.path.join(DATA_DIR, "exports")
 GIFTS_DIR = os.path.join(DATA_DIR, "gifts")
 
+# автоответы на комментарии канала (группа обсуждения): обработчик ставится первым; включается COMMENT_REPLIES=1
+try:
+    import comment_replies
+    comment_replies.register(bot, DATA_DIR, ADMIN_ID)
+except Exception as _exc:  # не должно ронять бота
+    log.error("comment_replies: %s", _exc)
+
 # сколько неоплаченных заказов можно держать одновременно
 MAX_PENDING = 1
 # интервал автобэкапа в часах, 0 — выключить
