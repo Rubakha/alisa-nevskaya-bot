@@ -274,6 +274,71 @@ def real_order(d):
     return o if o and o.get("chat_id") == d["chat_id"] else None
 
 
+def checkout(user, order, data):
+    """Оплата готового заказа (письмо, набор, PDF, озвучка): тестер → 0 ₽ без ЮKassa; полная скидка → выдача;
+    иначе ссылка ЮKassa. Общий хвост для всех покупок."""
+    order_id = order["order_id"]
+    if B.is_test_user(user["id"]):   # как send_test_payment в боте — 0 ₽, ЮKassa не трогаем, в статистику не идёт
+        order["is_test"] = True
+        order.setdefault("test_price_rub", order.get("price_rub"))
+        order["price_rub"] = 0
+        B.save_order(order)
+        try:
+            B.fulfill_order(user["id"], order_id, f"test-{secrets.token_hex(4)}", None)
+        except Exception as exc:
+            B.log.error("miniapp test fulfill %s: %s", order_id, exc)
+        return {"paid": True, "price": 0, "realPrice": order["test_price_rub"], "test": True, "orderId": order_id}
+    if order["price_rub"] <= 0:   # скидка и баланс покрыли всё
+        B.notify_admin_new_order(order)
+        try:
+            B.fulfill_order(user["id"], order_id, "free", None)
+        except Exception as exc:
+            B.log.error("miniapp free fulfill %s: %s", order_id, exc)
+        return {"paid": True, "price": 0, "orderId": order_id}
+    if not B.yk_enabled():
+        raise err("payment_unavailable", "Оплата в приложении сейчас недоступна — оплати в боте.", 503,
+                  botUrl=f"https://t.me/{B.BOT_USERNAME}")
+    email = str(data.get("email") or "").strip()[:120] or order.get("email") or \
+        (B.get_client(user["id"]) or {}).get("email")
+    if B.YOOKASSA_RECEIPT and not (email and B.EMAIL_RE.match(email)):
+        raise err("email_required", "Укажи почту — на неё придёт чек.", 400)
+    try:
+        url = B.yk_create(order, email, return_url(order_id))
+    except Exception as exc:
+        B.log.error("miniapp yk_create %s: %s", order_id, exc)
+        raise err("payment_failed", "Не получилось открыть страницу оплаты. Попробуй через минуту.", 502)
+    if url is None:
+        return {"paid": True, "price": order["price_rub"], "orderId": order_id}
+    B.notify_admin_new_order(B.get_order(order_id))
+    return {"paymentUrl": url, "price": order["price_rub"], "orderId": order_id}
+
+
+def pay_with_credit(user, d, order):
+    """Оплата письма кредитом набора (как occ:credit в боте): заказ выдаётся сразу, кредит списывается."""
+    if d.get("group") or d.get("voice"):
+        raise err("credit_not_allowed", "Письмо группой и письмо с озвучкой кредитом не оплачиваются.", 409)
+    profile = B.get_client(user["id"]) or {}
+    if profile.get("credits", 0) < 1:
+        raise err("no_credits", "В наборе не осталось писем.", 409)
+    if order and order.get("status") == "pending" and order.get("yk_payment_id"):
+        raise err("locked", "Оплата уже начата. Заверши её или отмени заказ.", 409)
+    profile["credits"] -= 1
+    B.write_json(B.client_path(user["id"]), profile)
+    order = B.occ_make_order(user["id"], tg_user(user), {**d, "qa": [tuple(x) for x in d["qa"]]}, status="done", price=0)
+    B.cb_event(user["id"], "buy", d["product"], d.get("card_ref"))
+    order["paid_at"] = order["delivered_at"] = B.now_msk().isoformat()
+    order["paid_by"] = "credit"
+    if d.get("source"):
+        order["source"] = d["source"]
+    B.save_order(order)
+    try:
+        B.occ_deliver(user["id"], order)
+        B.notify_admin_paid(order)
+    except Exception as exc:
+        B.log.error("miniapp credit deliver %s: %s", order["order_id"], exc)
+    return {"paid": True, "price": 0, "credit": True, "creditsLeft": profile["credits"], "orderId": order["order_id"]}
+
+
 def product_of(key):
     if key not in B.OCC.PRODUCTS:
         raise err("bad_product", "Такого повода нет.", 400)
@@ -434,6 +499,9 @@ def present(d):
     if ref:
         out["previewUrl"] = signed(oid, f"/orders/{oid}/card-preview.jpg", ref=ref) if not done else \
             signed(oid, f"/orders/{oid}/card.jpg")
+    if not done:
+        credits = (B.get_client(d["chat_id"]) or {}).get("credits", 0)
+        out["creditsAvailable"] = credits if not (d.get("group") or d.get("voice")) else 0
     if d.get("letter") and not done:
         head, locked, hidden_paragraphs = masked_head(d["letter"])
         out.update(letterPreview=head, locked=True, previewHidden=True, lockedChars=locked,
@@ -851,6 +919,8 @@ def routes():
         if order and order.get("status") == "done":
             return {"paid": True, "price": order["price_rub"], **({"test": True} if order.get("is_test") else {})}
         data = body()
+        if data.get("useCredit"):
+            return pay_with_credit(user, d, order)
         promo = str(data.get("promo") or d.get("promo") or "").strip()[:40] or None
         if promo and promo != d.get("promo"):
             ok, res = B.partners.apply_promo_code(user["id"], promo)   # как «Есть промокод» в боте (и привязка партнёра)
@@ -875,39 +945,7 @@ def routes():
                 B.save_order(order)
             save_draft(d)
             B.cb_event(user["id"], "buy", d["product"], d.get("card_ref"))
-        if test:   # тестовый аккаунт (TEST_USERS): как send_test_payment в боте — 0 ₽, ЮKassa не трогаем, в статистику не идёт
-            order["is_test"] = True
-            order.setdefault("test_price_rub", order.get("price_rub"))
-            order["price_rub"] = 0
-            B.save_order(order)
-            try:
-                B.fulfill_order(user["id"], order["order_id"], f"test-{secrets.token_hex(4)}", None)
-            except Exception as exc:
-                B.log.error("miniapp test fulfill %s: %s", order_id, exc)
-            return {"paid": True, "price": 0, "realPrice": order["test_price_rub"], "test": True}
-        if order["price_rub"] <= 0:   # скидка и баланс покрыли всё
-            B.notify_admin_new_order(order)
-            try:
-                B.fulfill_order(user["id"], order["order_id"], "free", None)
-            except Exception as exc:
-                B.log.error("miniapp free fulfill %s: %s", order_id, exc)
-            return {"paid": True, "price": 0}
-        if not B.yk_enabled():
-            raise err("payment_unavailable", "Оплата в приложении сейчас недоступна — оплати письмо в боте.", 503,
-                      botUrl=f"https://t.me/{B.BOT_USERNAME}")
-        email = str(data.get("email") or "").strip()[:120] or order.get("email") or \
-            (B.get_client(user["id"]) or {}).get("email")
-        if B.YOOKASSA_RECEIPT and not (email and B.EMAIL_RE.match(email)):
-            raise err("email_required", "Укажи почту — на неё придёт чек.", 400)
-        try:
-            url = B.yk_create(order, email, return_url(order_id))
-        except Exception as exc:
-            B.log.error("miniapp yk_create %s: %s", order_id, exc)
-            raise err("payment_failed", "Не получилось открыть страницу оплаты. Попробуй через минуту.", 502)
-        if url is None:
-            return {"paid": True, "price": order["price_rub"]}
-        B.notify_admin_new_order(B.get_order(order_id))
-        return {"paymentUrl": url, "price": order["price_rub"], "orderId": order_id}
+        return checkout(user, order, data)
 
     @endpoint("/orders/<order_id>/pay/check", methods=("POST",))
     def pay_check(order_id, user):
