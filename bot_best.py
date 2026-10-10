@@ -330,6 +330,32 @@ def save_test_users():
     write_json(TEST_USERS_FILE, sorted(TEST_USERS))
 
 
+TEST_OFF_FILE = os.path.join(DATA_DIR, "test_users_off.json")   # отключённые админом: по нику заново не включаем
+
+
+def test_usernames():
+    """Ники тестеров (TEST_USERNAMES, без @, регистр не важен): им бесплатно создавать и отправлять письма."""
+    raw = os.getenv("TEST_USERNAMES", "Victoria_Christmas,SerRubakha")
+    return {x.strip().lstrip("@\uff20").lower() for x in raw.split(",") if x.strip()}
+
+
+def maybe_register_tester(user):
+    """Если ник пользователя в TEST_USERNAMES, запоминаем его chat_id в test_users.json (как /test_add) и дальше
+    работаем по chat_id: смена ника ничего не ломает. Ник приходит из подписанного initData или из /start — подделать нельзя.
+    Отключённых админом (/test_off) заново не включаем."""
+    uname = (getattr(user, "username", None) or "").lower()
+    if not uname or uname not in test_usernames():
+        return False
+    if user.id in TEST_USERS:
+        return True
+    if user.id in {int(x) for x in read_json(TEST_OFF_FILE, []) if str(x).lstrip("-").isdigit()}:
+        return False
+    TEST_USERS.add(user.id)
+    save_test_users()
+    log.info("tester registered by username: %s", user.id)
+    return True
+
+
 def find_client_by_username(username):
     username = (username or "").lstrip("@").lower()
     for fname in os.listdir(CLIENTS_DIR) if os.path.isdir(CLIENTS_DIR) else []:
@@ -363,14 +389,17 @@ def cmd_test_users(message):
     if client["chat_id"] == ADMIN_ID:
         bot.send_message(message.chat.id, "Это аккаунт админа — для него тест не включаю.")
         return
+    off = {int(x) for x in read_json(TEST_OFF_FILE, []) if str(x).lstrip("-").isdigit()}
     if cmd == "/test_add":
         TEST_USERS.add(client["chat_id"])
         save_test_users()
+        write_json(TEST_OFF_FILE, sorted(off - {client["chat_id"]}))
         bot.send_message(message.chat.id, f"🧪 Тестовый режим включён для @{client['username']}: оплата 0 ₽ без ЮKassa, "
                                           "вне статистики, рассылок и начислений партнёрам.")
     else:
         TEST_USERS.discard(client["chat_id"])
         save_test_users()
+        write_json(TEST_OFF_FILE, sorted(off | {client["chat_id"]}))   # по нику заново не включится
         bot.send_message(message.chat.id, f"Тестовый режим выключен для @{client['username']}.")
 
 
@@ -672,6 +701,7 @@ def cmd_start(message):
 
     is_new = get_client(chat_id) is None
     profile = upsert_client(message.from_user, referred_by)
+    maybe_register_tester(message.from_user)
     is_new = profile is not None and profile.get("created_at", "") >= (now_msk() - timedelta(minutes=1)).isoformat()
     if is_new and "source" not in profile:
         # первая точка входа для аналитики: pdf / occ / g_<код> / ref_<id> / direct

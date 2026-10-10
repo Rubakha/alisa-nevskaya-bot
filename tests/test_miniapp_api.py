@@ -42,7 +42,8 @@ def rec(name):
     return f
 
 
-for m in ["send_message", "send_photo", "send_animation", "send_chat_action", "answer_callback_query"]:
+for m in ["send_message", "send_photo", "send_animation", "send_chat_action", "answer_callback_query",
+          "set_chat_menu_button", "delete_message"]:
     setattr(B.bot, m, rec(m))
 
 LETTER = ("Катя, привет. Первый абзац письма о нашей дружбе и черешне на крыше.\n\n"
@@ -72,8 +73,12 @@ B.channel_rss_items = lambda limit=15: [{"link": "https://t.me/x/1", "date": "20
                                          "text": "Пост дневника", "photo": None, "bot_start": None}]
 
 
+UNAME = {}   # user_id → username в initData (по умолчанию u<id>)
+
+
 def init_data(user_id, token=TOKEN, age=0, first="Тест"):
-    user = json.dumps({"id": user_id, "first_name": first, "username": f"u{user_id}"}, ensure_ascii=False)
+    user = json.dumps({"id": user_id, "first_name": first, "username": UNAME.get(user_id, f"u{user_id}")},
+                      ensure_ascii=False)
     pairs = {"auth_date": str(int(time.time()) - age), "query_id": "AAA", "user": user}
     check = "\n".join(f"{k}={pairs[k]}" for k in sorted(pairs))
     secret = hmac.new(b"WebAppData", token.encode(), hashlib.sha256).digest()
@@ -497,6 +502,94 @@ assert call("delete", f"/me/orders/{dr}", user=620).status_code == 404
 # в кабинете бота скрытые письма не показываются
 text, _kb = B.cabinet_view(500)
 assert "ALI-9000000001" not in text and "ALI-9000000004" not in text
+
+# ── превью письма: только приветствие и зацепка, остального нет вообще ──
+pv_oid = j(call("post", "/orders", user=650, data={"product": "birthday", "answers": ANSWERS}))["orderId"]
+r = call("post", f"/orders/{pv_oid}/preview", user=650)
+pvj = j(r)
+full = B.read_json(A.draft_path(pv_oid), {})["letter"]
+shown = pvj["letterPreview"]
+assert shown.endswith("…") and len(shown) <= 221 and len(shown) - 1 <= len(full) * 0.25 + 1, (len(shown), len(full))
+assert shown[:-1].strip() and full.startswith(shown[:-1].split("…")[0][:20]), "превью — начало письма"
+assert pvj["previewHidden"] is True and pvj["locked"] is True
+paras = [x for x in full.split(chr(10) * 2) if x.strip()]
+assert pvj["hiddenParagraphs"] == len(paras) - 2 and pvj["lockedChars"] == len(full) - len(shown) + 1, pvj
+for ln in [x for x in full.split(chr(10)) if x.strip()][-2:]:   # ни одной строки из конца письма
+    assert ln[:25] not in r.get_data(as_text=True), ln
+assert "СЕКРЕТНЫЙ_ХВОСТ" not in r.get_data(as_text=True) and "Твой Серёжа" not in r.get_data(as_text=True)
+st = j(call("get", f"/orders/{pv_oid}", user=650))
+assert st["letterPreview"] == shown and st["previewHidden"] is True and st["hiddenParagraphs"] == pvj["hiddenParagraphs"]
+assert "letter" not in st
+# короткие и однострочные тексты тоже не отдаются целиком
+for text in ("Катя, привет. Коротко.", "Катя, " + "слово " * 80 + "Твой Серёжа"):
+    head, hidden_chars, hidden_paragraphs = A.masked_head(text)
+    assert head.endswith("…") and len(head) - 1 <= max(len(text) * 0.25, 40) and hidden_chars > 0, (head, hidden_chars)
+    assert "Серёжа" not in head and text not in head
+assert A.masked_head("Привет.\n\nВторой абзац.\n\nТретий.")[2] >= 1
+
+# ── тестеры по нику (TEST_USERNAMES): chat_id запоминается, потом работаем по chat_id ──
+assert 640 not in B.TEST_USERS
+UNAME[640] = "victoria_CHRISTMAS"
+me = j(call("get", "/me", user=640))
+assert me["isTester"] is True and 640 in B.TEST_USERS and 640 in B.read_json(B.TEST_USERS_FILE, [])
+UNAME[640] = "renamed_later"
+assert j(call("get", "/me", user=640))["isTester"] is True, "смена ника ничего не ломает: помним chat_id"
+UNAME[641] = "SerRubakha"
+assert j(call("get", "/me", user=641))["isTester"] is True
+assert j(call("get", "/me", user=500))["isTester"] is False and 500 not in B.TEST_USERS
+UNAME[643] = "victoria_christmas_fake"
+assert j(call("get", "/me", user=643))["isTester"] is False, "похожий ник — не тестер"
+os.environ["TEST_USERNAMES"] = "OnlyOne"
+UNAME[644] = "Victoria_Christmas"
+assert j(call("get", "/me", user=644))["isTester"] is False, "список из TEST_USERNAMES, а не зашитый"
+os.environ.pop("TEST_USERNAMES")
+# /start тоже запоминает тестера
+st_user = pytypes.SimpleNamespace(id=642, first_name="Вика", last_name="", username="Victoria_Christmas")
+start_msg = pytypes.SimpleNamespace(chat=pytypes.SimpleNamespace(id=642, type="private"), text="/start", content_type="text",
+                                    from_user=st_user, message_id=1)
+B.cmd_start(start_msg)
+assert 642 in B.TEST_USERS
+# админ отключает через /test_off — по нику заново не включается; /test_add возвращает
+admin_msg = lambda text: pytypes.SimpleNamespace(chat=pytypes.SimpleNamespace(id=1, type="private"), text=text,  # noqa: E731
+                                                 content_type="text", from_user=pytypes.SimpleNamespace(id=1), message_id=1)
+B.cmd_test_users(admin_msg("/test_off @victoria_christmas"))
+assert 642 not in B.TEST_USERS
+B.cmd_start(start_msg)
+assert 642 not in B.TEST_USERS, "отключённого админом по нику не возвращаем"
+B.cmd_test_users(admin_msg("/test_add @victoria_christmas"))
+assert 642 in B.TEST_USERS
+# тестер создаёт и отправляет письма бесплатно: оплата 0 ₽, is_test, вне статистики
+n_yk = len(YK_CALLS)
+t_oid = j(call("post", "/orders", user=640, data={"product": "birthday", "answers": ANSWERS}))["orderId"]
+call("post", f"/orders/{t_oid}/preview", user=640)
+tp = j(call("post", f"/orders/{t_oid}/pay", user=640, data={}))
+assert tp["paid"] and tp["test"] and tp["price"] == 0 and tp["realPrice"] == 199 and len(YK_CALLS) == n_yk, tp
+assert B.get_order(t_oid)["is_test"] and B.get_order(t_oid) not in B.all_orders()
+assert j(call("post", f"/orders/{t_oid}/send", user=640))["envelopeUrl"]
+# отдельные суточные потолки тестера (письма и AI-картинки), обычных людей они не касаются
+os.environ["MINIAPP_TESTER_GEN_CAP"] = "2"
+o_t = j(call("post", "/orders", user=641, data={"product": "birthday", "answers": ANSWERS}))["orderId"]
+assert call("post", f"/orders/{o_t}/preview", user=641).status_code == 200
+assert call("post", f"/orders/{o_t}/preview", user=641).status_code == 200
+r = call("post", f"/orders/{o_t}/preview", user=641)
+assert r.status_code == 429 and j(r)["error"]["code"] == "daily_cap" and "Тестовый" in j(r)["error"]["message"]
+os.environ["MINIAPP_GEN_DAILY_CAP"] = "1000"
+o_n = j(call("post", "/orders", user=651, data={"product": "birthday", "answers": ANSWERS}))["orderId"]
+assert call("post", f"/orders/{o_n}/preview", user=651).status_code == 200, "обычный человек потолок тестера не видит"
+os.environ.pop("MINIAPP_GEN_DAILY_CAP")
+os.environ.pop("MINIAPP_TESTER_GEN_CAP")
+os.environ["MINIAPP_TESTER_AI_CAP"] = "1"
+GEN.clear()
+r = call("post", f"/orders/{t_oid}/ai-card", user=640, data=good)
+assert r.status_code == 200, r.get_data(as_text=True)
+job = j(r)["jobId"]
+for _ in range(50):
+    if j(call("get", f"/orders/{t_oid}/ai-card/{job}", user=640))["status"] != "pending":
+        break
+    time.sleep(0.1)
+r = call("post", f"/orders/{t_oid}/ai-card", user=640, data=good)
+assert r.status_code == 429 and j(r)["error"]["code"] == "daily_cap", r.get_data(as_text=True)
+os.environ.pop("MINIAPP_TESTER_AI_CAP")
 
 # ── лимит запросов на человека ──
 A.USER_PER_MIN = 3

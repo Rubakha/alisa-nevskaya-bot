@@ -44,6 +44,7 @@ LOCK = threading.RLock()
 HITS = defaultdict(deque)         # ключ → метки времени запросов
 GENS = defaultdict(deque)         # user_id → метки времени генераций письма
 GEN_DAY = {"day": "", "count": 0}
+TESTER_GEN = {}                   # user_id → (день, сколько писем сегодня): отдельный потолок тестеров
 BUSY = set()                      # order_id, для которых идёт генерация письма
 JOBS = {}                         # jobId → состояние AI-картинки
 INFLIGHT = defaultdict(int)       # order_id → сколько AI-картинок рисуется сейчас
@@ -76,6 +77,20 @@ def enabled():
 def origins():
     extra = [o.strip().rstrip("/") for o in os.getenv("MINIAPP_ORIGINS", "").split(",") if o.strip()]
     return {DEFAULT_ORIGIN, *extra}
+
+
+def tester_gen_cap():
+    try:
+        return int(os.getenv("MINIAPP_TESTER_GEN_CAP", "30"))
+    except ValueError:
+        return 30
+
+
+def tester_ai_cap():
+    try:
+        return int(os.getenv("MINIAPP_TESTER_AI_CAP", "10"))
+    except ValueError:
+        return 10
 
 
 def gen_daily_cap():
@@ -141,6 +156,11 @@ def current_user(required=True):
     user = miniapp_share.init_data_user(request.headers.get("X-Telegram-Init-Data", ""), B.TG_BOT_TOKEN)
     if not user and required:
         raise err("unauthorized", "Открой приложение из Telegram — так я пойму, кто ты.", 401)
+    if user:
+        try:
+            B.maybe_register_tester(tg_user(user))   # ник из TEST_USERNAMES → запоминаем chat_id (как /test_add)
+        except Exception as exc:
+            B.log.error("tester register: %s", exc)
     return user
 
 
@@ -296,11 +316,51 @@ def render_preview(d, ref, preview=True):
     return B.postcards.render(d["product"], title, line, d.get("sign", ""), preview=preview, card_ref=ref)
 
 
+PREVIEW_MAX = 220      # символов в превью, не больше
+PREVIEW_SHARE = 0.25   # и не больше четверти письма
+
+
 def masked_head(letter):
-    """Читаемая часть письма (первая половина по границе слова); остальное наружу не отдаём."""
-    cut = max(220, len(letter) // 2)
-    head = letter[:cut].rsplit(None, 1)[0] if " " in letter[:cut] else letter[:cut]
-    return head, max(0, len(letter) - len(head))
+    """Превью письма: только приветствие и первая короткая фраза-зацепка (≤220 знаков и ≤25% текста), обрыв по слову с «…».
+    Остальное, включая концовку, подпись и имена из конца, наружу не отдаём вообще (не прячем CSS-ом).
+    Возвращает (текст, скрытых знаков, скрытых абзацев)."""
+    letter = (letter or "").strip()
+    limit = max(40, min(PREVIEW_MAX, int(len(letter) * PREVIEW_SHARE)))
+    if len(letter) < 160:   # совсем короткое письмо: показываем только четверть
+        limit = max(1, len(letter) // 4)
+    head = letter[:limit]
+    if len(letter) > limit and not letter[limit].isspace() and len(head.split()) > 1:
+        head = head.rsplit(None, 1)[0]   # обрыв по слову
+    head = head.rstrip(" ,;:—-")
+    shown_chars = len(head)
+    paragraphs = [p for p in letter.split(chr(10) * 2) if p.strip()]
+    pos, touched = 0, 0
+    for p in paragraphs:   # сколько абзацев затронуто превью (последний может быть показан частично)
+        idx = letter.find(p, pos)
+        if idx < shown_chars:
+            touched += 1
+        pos = idx + len(p)
+    return head + "…", max(0, len(letter) - shown_chars), max(0, len(paragraphs) - touched)
+
+
+def ai_today_for(chat_id):
+    """Сколько AI-картинок человек нарисовал сегодня (по журналу ai_card)."""
+    day = B.now_msk().date().isoformat()
+    n = 0
+    try:
+        with open(B.ai_card._ledger_path(), encoding="utf-8") as f:
+            for line in f:
+                if f'"ts": "{day}' not in line:
+                    continue
+                try:
+                    o = B.get_order(json.loads(line).get("order", ""))
+                except ValueError:
+                    continue
+                if o and o.get("chat_id") == chat_id:
+                    n += 1
+    except OSError:
+        pass
+    return n
 
 
 def clean_source(value):
@@ -374,8 +434,9 @@ def present(d):
         out["previewUrl"] = signed(oid, f"/orders/{oid}/card-preview.jpg", ref=ref) if not done else \
             signed(oid, f"/orders/{oid}/card.jpg")
     if d.get("letter") and not done:
-        head, locked = masked_head(d["letter"])
-        out.update(letterPreview=head, locked=True, lockedChars=locked)
+        head, locked, hidden_paragraphs = masked_head(d["letter"])
+        out.update(letterPreview=head, locked=True, previewHidden=True, lockedChars=locked,
+                   hiddenParagraphs=hidden_paragraphs)
         left = max(0, FREE_RETEXTS - d.get("retexts", 0))
         out["retextsLeft"] = left
         out["wishAvailable"] = left == 0 and not d.get("wish_used")
@@ -393,6 +454,16 @@ def gen_guard(user_id):
         raise err("rate_limited", "Письма пишутся не чаще нескольких раз в час — попробуй чуть позже.", 429,
                   retryAfter=wait)
     day = B.now_msk().strftime("%Y-%m-%d")
+    if B.is_test_user(user_id):   # тестеру — свой потолок на человека, общий потолок он не расходует
+        with LOCK:
+            used = TESTER_GEN.get(user_id, ("", 0))
+            used = used[1] if used[0] == day else 0
+            if used >= tester_gen_cap():
+                GENS[user_id].pop()
+                raise err("daily_cap", "Тестовый лимит писем на сегодня исчерпан — продолжим завтра.", 429,
+                          retryAfter=3600)
+            TESTER_GEN[user_id] = (day, used + 1)
+        return
     with LOCK:
         if GEN_DAY["day"] != day:
             GEN_DAY.update(day=day, count=0)
@@ -685,7 +756,8 @@ def routes():
             with LOCK:
                 BUSY.discard(order_id)
         out = present(d)
-        return {"letterPreview": out["letterPreview"], "locked": True, "lockedChars": out["lockedChars"],
+        return {"letterPreview": out["letterPreview"], "locked": True, "previewHidden": True,
+                "lockedChars": out["lockedChars"], "hiddenParagraphs": out["hiddenParagraphs"],
                 "retextsLeft": out["retextsLeft"], "wishAvailable": out["wishAvailable"],
                 "cardRef": out["cardRef"], "previewUrl": out.get("previewUrl")}
 
@@ -884,7 +956,10 @@ def routes():
             used = AC.used_for_order(order_id) + INFLIGHT[order_id]
             if used >= AC.MAX_TRIES:
                 raise err("no_attempts", "Попытки закончились — выбери одну из готовых картинок.", 409)
-            if AC.today_count() + sum(INFLIGHT.values()) >= AC.daily_cap():
+            if B.is_test_user(user["id"]):   # тестер: свой потолок картинок в день, общий не расходует
+                if ai_today_for(user["id"]) + INFLIGHT[order_id] >= tester_ai_cap():
+                    raise err("daily_cap", "Тестовый лимит картинок на сегодня исчерпан.", 429, retryAfter=3600)
+            elif AC.today_count() + sum(INFLIGHT.values()) >= AC.daily_cap():
                 raise err("daily_cap", "Сегодня я рисую слишком много — попробуй завтра 🤍", 429, retryAfter=3600)
             INFLIGHT[order_id] += 1
             n = used + 1
@@ -977,7 +1052,8 @@ def routes():
                 "bonusRub": profile.get("bonus_rub", 0), "credits": profile.get("credits", 0),
                 "referralLink": P.friend_link(user["id"]), "friendDiscount": P.FRIEND_DISCOUNT,
                 "friendBonusRub": P.FRIEND_BONUS_RUB,
-                "invitedFriends": len(profile.get("referrals", []))}
+                "invitedFriends": len(profile.get("referrals", [])),
+                "isTester": B.is_test_user(user["id"])}
 
     @endpoint("/me/orders")
     def me_orders(user):
