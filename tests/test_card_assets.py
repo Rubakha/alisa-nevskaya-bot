@@ -25,7 +25,8 @@ wide = Image.new("RGBA", (900, 200), (200, 50, 50, 255))
 wide.save(os.path.join(tmp_props, "new_wide_scarf.png"))
 Image.new("RGBA", (100, 100), (0, 0, 0, 255)).save(os.path.join(tmp_props, "Bad-Name.png"))   # недопустимое имя
 Image.new("RGBA", (100, 100), (0, 0, 0, 255)).save(os.path.join(tmp_props, "a.b.png"))
-assert PC.available_props() == base + ["new_wide_scarf"], PC.available_props()
+now = PC.available_props()
+assert now[:10] == PC.PROP_FILES and set(now) == set(base) | {"new_wide_scarf"} and now == base[:10] + sorted(set(now) - set(base[:10])), now
 assert CC.prop_labels()["new_wide_scarf"] == "🖼 New wide scarf" and CC.prop_labels()["tea_cup"] == "☕ Чашка"
 ref = PC.encode_spec("birthday-001", "none", ["new_wide_scarf", "tea_cup", "nope"], "corners", "none")
 assert PC.parse_spec(ref)["props"] == ["new_wide_scarf", "tea_cup"], "новый предмет принимается, чужое имя — нет"
