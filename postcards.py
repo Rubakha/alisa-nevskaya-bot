@@ -100,7 +100,8 @@ def parse_spec(card_ref):
         return None
     pal, props, lay, frame = parts[:4]
     anim = parts[4] if len(parts) == 5 else "none"
-    props = [x for x in props.split("+") if x in PROP_FILES][:MAX_PROPS]
+    available = available_props()
+    props = [x for x in props.split("+") if x in available][:MAX_PROPS]
     return {"base": base, "pal": pal if pal in GRADES else "none", "props": props,
             "lay": lay if lay in LAYOUTS else "corners", "frame": frame if frame in FRAMES else "none",
             "anim": anim if anim in ANIMS else "none"}
@@ -127,7 +128,17 @@ GRADES = {
     "sage": ((206, 222, 200), 0.18),
 }
 PROP_FILES = ["dried_bouquet", "olive_branch", "ribbon_bow", "envelope_cream", "envelope_kraft",
-              "gift_tag", "lace_doily", "stamps_key", "tea_cup", "postcard"]
+              "gift_tag", "lace_doily", "stamps_key", "tea_cup", "postcard"]   # прежний набор: от него зависят старые композиции «~n»
+_PROP_NAME = re.compile(r"^[a-z0-9_]{1,40}$")   # имя файла идёт в ссылку открытки: без точек, плюсов и дефисов
+
+
+def available_props():
+    """Реквизит из assets/props/*.png: новые файлы подхватываются без правки кода. Прежние — первыми и в прежнем порядке."""
+    try:
+        names = {f[:-4] for f in os.listdir(PROPS) if f.endswith(".png") and _PROP_NAME.match(f[:-4])}
+    except OSError:
+        names = set()
+    return [n for n in PROP_FILES if n in names] + sorted(names - set(PROP_FILES))
 CORNERS = ["bl", "br", "tl", "tr"]
 
 
@@ -139,14 +150,29 @@ def _grade(im, name):
     return Image.blend(im, Image.new("RGB", im.size, tint), k)
 
 
-def _place_prop(photo, prop_name, corner, rnd):
+MAX_PROP_W = 300      # предмет не шире этого: в углу он не заходит на центр кадра, где лица
+TILT = 12             # наклон в конструкторе — лёгкий, предмет лежит «по-человечески»
+
+
+def _fit_prop(prop, h):
+    """Высота h, но не шире MAX_PROP_W (широкие конверты и кружево уменьшаются)."""
+    w = round(prop.width * h / prop.height)
+    if w > MAX_PROP_W:
+        h, w = round(h * MAX_PROP_W / w), MAX_PROP_W
+    return prop.resize((w, h), Image.LANCZOS)
+
+
+def _place_prop(photo, prop_name, corner, rnd, tame=False):
     path = os.path.join(PROPS, prop_name + ".png")
     if not os.path.exists(path):
         return
     prop = Image.open(path).convert("RGBA")
     h = rnd.randint(200, 290)
-    prop = prop.resize((round(prop.width * h / prop.height), h), Image.LANCZOS)
-    prop = prop.rotate(rnd.randint(-38, 38), resample=Image.BICUBIC, expand=True)
+    if tame:
+        prop = _fit_prop(prop, h).rotate(rnd.randint(-TILT, TILT), resample=Image.BICUBIC, expand=True)
+    else:
+        prop = prop.resize((round(prop.width * h / prop.height), h), Image.LANCZOS)
+        prop = prop.rotate(rnd.randint(-38, 38), resample=Image.BICUBIC, expand=True)
     shadow = Image.new("RGBA", prop.size, (0, 0, 0, 0))
     shadow.putalpha(prop.getchannel("A").point(lambda a: int(a * 0.35)))
     shadow = shadow.filter(ImageFilter.GaussianBlur(10))
@@ -178,8 +204,7 @@ def _paste_prop(photo, name, cx, cy, h, rot):
     path = os.path.join(PROPS, name + ".png")
     if not os.path.exists(path):
         return
-    prop = Image.open(path).convert("RGBA")
-    prop = prop.resize((round(prop.width * h / prop.height), h), Image.LANCZOS)
+    prop = _fit_prop(Image.open(path).convert("RGBA"), h)
     prop = prop.rotate(rot, resample=Image.BICUBIC, expand=True)
     shadow = Image.new("RGBA", prop.size, (0, 0, 0, 0))
     shadow.putalpha(prop.getchannel("A").point(lambda a: int(a * 0.35)))
@@ -201,18 +226,19 @@ def compose_custom(photo, spec):
     photo = _grade(photo, spec["pal"])
     props, lay, n = spec["props"], spec["lay"], len(spec["props"])
     if n and lay == "corners":
-        for name, corner in zip(props, ["bl", "tr", "br", "tl"]):
-            _place_prop(photo, name, corner, rnd)
+        for name, corner in zip(props, ["bl", "br", "tl", "tr"]):   # сначала нижние углы — «на столе», верхние только для третьего предмета
+            _place_prop(photo, name, corner, rnd, tame=True)
     elif n:
         h = 230
         if lay in ("left", "right"):
             x = 140 if lay == "left" else W - 140
-            for name, y in zip(props, _spread(n, 190, 520)):
-                _paste_prop(photo, name, x + rnd.randint(-15, 15), y, h, rnd.randint(-25, 25))
-        else:
-            y = 170 if lay == "top" else PHOTO_H - 250
-            for name, x in zip(props, _spread(n, 220, W - 220)):
-                _paste_prop(photo, name, x, y + rnd.randint(-15, 15), h - 20, rnd.randint(-25, 25))
+            for name, y in zip(props, _spread(n, 330, 580)):   # нижняя половина кадра: предметы лежат «на столе»
+                _paste_prop(photo, name, x + rnd.randint(-15, 15), y, h, rnd.randint(-TILT, TILT))
+        else:   # вдоль верхнего или нижнего края; один предмет — у правого края, а не по центру кадра
+            y = 150 if lay == "top" else PHOTO_H - 190
+            xs = [W - 230] if n == 1 else _spread(n, 220, W - 220)
+            for name, x in zip(props, xs):
+                _paste_prop(photo, name, x, y + rnd.randint(-15, 15), h - 40, rnd.randint(-TILT, TILT))
     if spec["frame"] != "none":
         d = ImageDraw.Draw(photo)
         d.rectangle([22, 22, W - 23, PHOTO_H - 1], outline=PAPER, width=10)

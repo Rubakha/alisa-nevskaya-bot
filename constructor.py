@@ -17,6 +17,18 @@ PROP_LABELS = {
     "envelope_cream": "✉️ Конверт", "envelope_kraft": "📜 Крафт-конверт", "gift_tag": "🏷 Бирка",
     "lace_doily": "🕸 Кружево", "stamps_key": "🔑 Марки и ключ", "tea_cup": "☕ Чашка", "postcard": "💌 Открытка",
 }
+
+
+def prop_label(name):
+    """Подпись предмета: из словаря, иначе автоподпись из имени файла (tea_cup → «🖼 Tea cup»)."""
+    return PROP_LABELS.get(name) or "🖼 " + name.replace("_", " ").capitalize()
+
+
+def prop_labels():
+    """Все предметы из assets/props/*.png (новые файлы подхватываются без правки кода)."""
+    return {name: prop_label(name) for name in PC.available_props()}
+
+
 PAL_LABELS = {"none": "Как есть", "warm": "Тёплая", "soft": "Прохладная", "sepia": "Сепия", "rose": "Розовая",
               "sage": "Шалфей"}
 LAY_LABELS = {"corners": "По углам", "left": "Слева", "right": "Справа", "top": "Сверху", "bottom": "Снизу"}
@@ -81,7 +93,7 @@ def options_menu(current, labels, prefix):
 def props_menu(state):
     chosen = state["cc"]["props"]
     kb = _kb()
-    kb.add(*[_btn(("✓ " if key in chosen else "") + text, f"cc:prop:{key}") for key, text in PROP_LABELS.items()])
+    kb.add(*[_btn(("✓ " if key in chosen else "") + text, f"cc:prop:{key}") for key, text in prop_labels().items()])
     kb.add(_btn("⬅️ Назад", "cc:menu"))
     return kb
 
@@ -171,7 +183,7 @@ def change_cb(call):
     elif kind == "anim" and value in ANIM_LABELS:
         cc["anim"] = value
         markup = options_menu(cc["anim"], ANIM_LABELS, "anim")
-    elif kind == "prop" and value in PROP_LABELS:
+    elif kind == "prop" and value in prop_labels():
         if value in cc["props"]:
             cc["props"].remove(value)
         elif len(cc["props"]) >= PC.MAX_PROPS:
@@ -195,7 +207,8 @@ def random_cb(call):
     rnd = random.Random()
     cc = state["cc"]
     cc["pal"] = rnd.choice(list(PAL_LABELS))
-    cc["props"] = rnd.sample(list(PROP_LABELS), rnd.choice([1, 2, 3]))
+    labels = list(prop_labels())
+    cc["props"] = rnd.sample(labels, min(len(labels), rnd.choice([1, 2, 3])))
     cc["lay"] = rnd.choice(list(LAY_LABELS))
     cc["frame"] = rnd.choice(list(FRAME_LABELS))
     cc["anim"] = rnd.choice(list(ANIM_LABELS))

@@ -9,6 +9,7 @@ assets/postcards/catalog.json попадают в базу со статусом
 "<повод>-<файл>~<n>" — тот же фон в композиции с реквизитом (см. postcards.compose).
 """
 import json
+import time
 import os
 import random
 import sqlite3
@@ -49,6 +50,7 @@ def init(data_dir, bgs_dir):
         c.executescript(SCHEMA)
         c.commit()
     sync_catalog()
+    _SYNC.update(sig=_assets_signature(), at=time.time())
 
 
 def _now():
@@ -98,7 +100,41 @@ def file_exists(card_id):
     return os.path.exists(os.path.join(_bgs_dir, occ, f"{stem}.jpg"))
 
 
+_SYNC = {"sig": None, "at": 0.0}
+
+
+def _assets_signature():
+    """Отпечаток папки фонов: файлы и catalog.json. Меняется, когда штаб кладёт новые картинки."""
+    sig = []
+    try:
+        sig.append(os.path.getmtime(os.path.join(_bgs_dir, "catalog.json")))
+    except OSError:
+        sig.append(0)
+    try:
+        for occ in sorted(os.listdir(_bgs_dir)):
+            folder = os.path.join(_bgs_dir, occ)
+            if os.path.isdir(folder):
+                sig.append((occ, len([f for f in os.listdir(folder) if f.endswith(".jpg")])))
+    except OSError:
+        pass
+    return sig
+
+
+def refresh_if_changed(max_age=30):
+    """Новые фоны (assets/postcards/<повод>/*.jpg + catalog.json) появляются без перезапуска: не чаще раза в max_age секунд."""
+    now = time.time()
+    if now - _SYNC["at"] < max_age:
+        return 0
+    _SYNC["at"] = now
+    sig = _assets_signature()
+    if sig == _SYNC["sig"]:
+        return 0
+    _SYNC["sig"] = sig
+    return sync_catalog()
+
+
 def active_ids(occasion):
+    refresh_if_changed()
     with closing(_connect()) as c:
         rows = c.execute("SELECT id FROM cards WHERE occasion=? AND status='active' ORDER BY id", (occasion,))
         return [r["id"] for r in rows if file_exists(r["id"])]

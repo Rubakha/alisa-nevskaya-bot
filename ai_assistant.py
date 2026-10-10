@@ -14,6 +14,7 @@ Claude-помощник для бота «Алиса Невская».
 
 import logging
 import os
+import re
 
 log = logging.getLogger("alisa.ai")
 
@@ -423,8 +424,9 @@ OCCASION_VOICE = """Ты — Алиса Невская, пишешь письм�
 — не выдумывай факты, которых нет в ответах; можно домыслить атмосферу,
   но не события
 — оформление, чтобы легко читалось с телефона: абзацы по 2–4 предложения, между абзацами пустая
-  строка; в письме 3–5 эмодзи по смыслу, в конце абзацев или после главной мысли — только из набора
-  🤍 💌 🌿 🕯 ✉️ и к поводу (🎂 🥂 🎄 🙏 🕊 🫂); не больше одного эмодзи в абзаце, без цепочек и без крика
+  строка; в письме 2–5 уместных по теме смайликов (🌷 🤍 💌 ☕ 🎂 🕊 ✨ 🌿 🕯 🥂 🎄 🙏 🫂 и т. п. — по поводу и тону),
+  в конце абзацев или у ключевых мест, не в каждой строке, не больше одного в абзаце, без цепочек и без крика;
+  обращение в начале и подпись в конце — без смайликов; в торжественном тоне 1–2 смайла и без смайлов-лиц (😊 😂 🥰)
 — без markdown и заголовков"""
 
 TONE_HINTS = {
@@ -433,6 +435,41 @@ TONE_HINTS = {
     "solemn": "торжественно и красиво, с достоинством, но без канцелярита",
     "simple": "просто и искренне, как говорят близкие люди, без пафоса",
 }
+
+EMOJI_TONE = {
+    "solemn": "Смайликов 1–2, только предметные (🕊 🥂 🕯 ✨), без смайлов-лиц.",
+    "tender": "Смайликов 2–4, мягких: 🤍 🌷 ✨ 🕊 ☕.",
+    "warm": "Смайликов 3–5, живых, можно один улыбающийся (😊).",
+    "simple": "Смайликов 2–3, неброских.",
+}
+
+# смайлики и пиктограммы; вариационный селектор и склейку считаем частью смайла
+EMOJI_RE = re.compile("[\U0001F000-\U0001FAFF☀-➿⭐⭕❤][️‍]*")
+
+
+def cap_emoji(text, limit=1):
+    """Оставляет не больше limit смайликов (лишние убирает вместе с пробелом перед ними)."""
+    seen = 0
+
+    def keep(m):
+        nonlocal seen
+        seen += 1
+        return m.group(0) if seen <= limit else ""
+    return re.sub(r" {2,}", " ", EMOJI_RE.sub(keep, text or "")).strip()
+
+
+def clean_edges(letter):
+    """Обращение (первая строка) и подпись (последняя, «— Имя») — без смайликов."""
+    lines = (letter or "").split(chr(10))
+    idx = [i for i, ln in enumerate(lines) if ln.strip()]
+    if not idx:
+        return letter
+    edges = {idx[0], idx[-1]} | {i for i in idx if lines[i].lstrip().startswith("—") and len(lines[i]) <= 60}
+    for i in edges:
+        if len(lines[i]) <= 60:
+            lines[i] = re.sub(r" {2,}", " ", EMOJI_RE.sub("", lines[i])).rstrip()
+    return chr(10).join(lines)
+
 
 LENGTH_HINTS = {
     "toast": "Это речь для произнесения вслух: 170–260 слов, короткие фразы, одна смешная "
@@ -465,26 +502,28 @@ def generate_occasion(brief: str, product_key: str, qa: list, tone: str,
 Ответы заказчика:
 {joined}
 {redo}
-Тон: {TONE_HINTS.get(tone, TONE_HINTS['simple'])}.
+Тон: {TONE_HINTS.get(tone, TONE_HINTS['simple'])}. {EMOJI_TONE.get(tone, EMOJI_TONE['simple'])}
 Подпись в конце письма: {sign}.
 Длина и форма: {length}
 
 Верни ответ строго в трёх блоках, без пояснений:
 ===TITLE===
-заголовок для открытки, до 34 знаков, с именем адресата (пример: «{default_title}»)
+заголовок для открытки, до 34 знаков, с именем адресата, без смайликов (пример: «{default_title}»)
 ===LINE===
-одна фраза для открытки рукописным шрифтом, 50–110 знаков, самая сильная мысль письма
+одна фраза для открытки рукописным шрифтом, 50–110 знаков, самая сильная мысль письма, без смайликов
 ===LETTER===
 полный текст письма, в конце отдельной строкой подпись «{sign}»"""
     raw = _call(OCCASION_VOICE, prompt, max_tokens=1600, model=MODEL_DEEP, temperature=1.0)
     out = {"letter": raw, "card_title": default_title, "card_line": ""}
     if "===LETTER===" in raw:
         head, letter = raw.split("===LETTER===", 1)
-        out["letter"] = _airy(letter)
+        out["letter"] = clean_edges(_airy(letter))
         if "===LINE===" in head:
             t, line = head.split("===LINE===", 1)
             out["card_line"] = line.strip().strip("«»\"")
             out["card_title"] = t.replace("===TITLE===", "").strip().strip("«»\"") or default_title
+    out["card_title"] = cap_emoji(out["card_title"], 1)   # на открытке — лучше без смайла, максимум один
+    out["card_line"] = cap_emoji(out["card_line"], 1)
     if len(out["card_title"]) > 40:
         out["card_title"] = default_title
     if not out["card_line"]:
@@ -506,8 +545,9 @@ GROUP_VOICE = """Ты — Алиса Невская. Собираешь ОБЩЕ
   для адресата — просто не включай это, остальное сохрани
 — никаких штампов: «счастья, здоровья», «от всей души», «пусть сбудутся все мечты»
 — оформление, чтобы легко читалось с телефона: абзацы по 2–4 предложения, между абзацами пустая
-  строка; в письме 3–5 эмодзи по смыслу, в конце абзацев или после главной мысли — только из набора
-  🤍 💌 🌿 🕯 ✉️ и к поводу (🎂 🥂 🎄 🙏 🕊 🫂); не больше одного эмодзи в абзаце, без цепочек и без крика
+  строка; в письме 2–5 уместных по теме смайликов (🌷 🤍 💌 ☕ 🎂 🕊 ✨ 🌿 🕯 🥂 🎄 🙏 🫂 и т. п. — по поводу и тону),
+  в конце абзацев или у ключевых мест, не в каждой строке, не больше одного в абзаце, без цепочек и без крика;
+  обращение в начале и подпись в конце — без смайликов; в торжественном тоне 1–2 смайла и без смайлов-лиц (😊 😂 🥰)
 — без markdown и заголовков"""
 
 
@@ -532,20 +572,22 @@ def generate_group_letter(brief: str, name: str, who: str, parts: list, sign: st
 {redo}
 Верни ответ строго в трёх блоках, без пояснений:
 ===TITLE===
-заголовок для открытки, до 34 знаков, с именем адресата (пример: «{default_title}»)
+заголовок для открытки, до 34 знаков, с именем адресата, без смайликов (пример: «{default_title}»)
 ===LINE===
-одна фраза для открытки рукописным шрифтом, 50–110 знаков, общая мысль письма
+одна фраза для открытки рукописным шрифтом, 50–110 знаков, общая мысль письма, без смайликов
 ===LETTER===
 полный текст письма; каждая часть участника заканчивается строкой «— Имя»; в конце — общая подпись «{sign}»"""
     raw = _call(GROUP_VOICE, prompt, max_tokens=2400, model=MODEL_DEEP, temperature=1.0)
     out = {"letter": raw, "card_title": default_title, "card_line": ""}
     if "===LETTER===" in raw:
         head, letter = raw.split("===LETTER===", 1)
-        out["letter"] = _airy(letter)
+        out["letter"] = clean_edges(_airy(letter))
         if "===LINE===" in head:
             t, line = head.split("===LINE===", 1)
             out["card_line"] = line.strip().strip("«»\"")
             out["card_title"] = t.replace("===TITLE===", "").strip().strip("«»\"") or default_title
+    out["card_title"] = cap_emoji(out["card_title"], 1)   # на открытке — лучше без смайла, максимум один
+    out["card_line"] = cap_emoji(out["card_line"], 1)
     if len(out["card_title"]) > 40:
         out["card_title"] = default_title
     if not out["card_line"]:

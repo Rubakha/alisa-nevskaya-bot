@@ -383,6 +383,47 @@ assert j(call("get", "/me/reminders"))["items"] == []
 inv = j(call("post", "/me/invite"))
 assert inv["link"].endswith("start=ref_500") and "−10%" in inv["text"] and "t.me/share/url" in inv["shareUrl"]
 
+# ── атрибуция из приложения (start_param) ──
+assert call("post", "/me/attribution", user=610, data={"source": "bad source!"}).status_code == 400
+assert call("post", "/me/attribution", user=610, data={"source": "x" * 41}).status_code == 400
+assert call("post", "/me/attribution", user=610, data={}).status_code == 400
+assert call("post", "/me/attribution", user=None, data={"source": "ig_father"}).status_code == 401
+r = j(call("post", "/me/attribution", user=610, data={"source": "ig_father"}))
+assert r["recorded"] is True and r["source"] == "ig_father" and B.get_client(610)["source"] == "ig_father"
+r = j(call("post", "/me/attribution", user=610, data={"source": "vk_other"}))
+assert r["recorded"] is False and B.get_client(610)["source"] == "ig_father", "первое касание не перезаписывается"
+# реферал: скидка другу и запись у пригласившего — как в /start ref_<id>
+r = j(call("post", "/me/attribution", user=611, data={"source": "ref_500"}))
+assert r["recorded"] and r["source"] == "ref" and r["discount"]["percent"] == 10 and "друга" in r["discount"]["label"], r
+assert B.get_client(611)["referred_by"] == 500 and 611 in B.get_client(500)["referrals"]
+call("post", "/me/attribution", user=611, data={"source": "ref_501"})
+assert B.get_client(611)["referred_by"] == 500 and 611 not in B.get_client(501).get("referrals", [])
+call("post", "/me/attribution", user=612, data={"source": "ref_612"})   # себя приглашать нельзя
+assert not B.get_client(612).get("referred_by")
+call("post", "/me/attribution", user=613, data={"source": "ref_424242"})  # пригласившего нет
+assert not B.get_client(613).get("referred_by") and B.get_client(613)["source"] == "ref"
+B.upsert_client(pytypes.SimpleNamespace(id=614, first_name="Старый", last_name="", username="old"))
+B.write_json(B.client_path(614), {**B.get_client(614), "source": "direct"})
+call("post", "/me/attribution", user=614, data={"source": "ref_500"})   # уже заходил без метки — реферал не даём
+assert not B.get_client(614).get("referred_by")
+# партнёр: привязка на 30 дней
+B.partners.save_partner({"code": "PART9", "name": "Блогер", "discount": 15, "percent": 30, "status": "active",
+                         "tg_chat_id": None, "created_at": B.now_msk().isoformat()})
+r = j(call("post", "/me/attribution", user=615, data={"source": "p_PART9"}))
+assert r["recorded"] and B.get_client(615)["partner"]["code"] == "PART9" and r["discount"]["percent"] == 15, r
+assert B.get_client(615)["source"] == "p_PART9"
+# метка в заказе
+r = call("post", "/orders", user=616, data={"product": "birthday", "answers": ANSWERS, "source": "tg post!"})
+assert r.status_code == 400 and j(r)["error"]["code"] == "bad_source"
+src_oid = j(call("post", "/orders", user=616, data={"product": "birthday", "answers": ANSWERS, "source": "tg_post"}))["orderId"]
+assert B.read_json(A.draft_path(src_oid), {})["source"] == "tg_post" and B.get_client(616)["source"] == "tg_post"
+
+# ── /card-options: блок ai, реквизит из папки ──
+opts = j(call("get", "/card-options", user=None))
+assert opts["ai"]["enabled"] is True and opts["ai"]["maxTries"] == 3 and opts["ai"]["maxExtras"] == 2
+assert "water" in opts["ai"]["styles"] and "cake" in opts["ai"]["scenes"]["birthday"] and "warm" in opts["ai"]["palettes"]
+assert "candles" in opts["ai"]["extras"] and set(opts["props"]) >= {"tea_cup", "ribbon_bow"}
+
 # ── лимит запросов на человека ──
 A.USER_PER_MIN = 3
 codes = [call("get", "/me", user=600).status_code for _ in range(5)]

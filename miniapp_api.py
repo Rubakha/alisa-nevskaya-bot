@@ -49,6 +49,7 @@ INFLIGHT = defaultdict(int)       # order_id → сколько AI-картин�
 _DIARY = {"at": 0, "items": []}
 SAFE_REF = re.compile(r"^[a-z0-9]+-[A-Za-z0-9_]+$")
 SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{4,40}$")
+SOURCE_RE = re.compile(r"^[A-Za-z0-9_-]{1,40}$")   # метка источника (start_param): коды партнёров — в верхнем регистре
 
 DEMO_LETTER = ("Ты ищешь ответ, потому что боишься ошибиться.\n"
                "Но самые живые истории получаются у тех, кто ошибался часто.\n\n"
@@ -275,6 +276,41 @@ def masked_head(letter):
     return head, max(0, len(letter) - len(head))
 
 
+def clean_source(value):
+    value = str(value or "").strip()
+    return value if SOURCE_RE.match(value) else None
+
+
+def apply_attribution(user, param):
+    """Метка источника из приложения (start_param) — те же эффекты, что у /start <метка>:
+    first touch в профиле, партнёрская привязка (p_), реферал и скидка другу (ref_). Идемпотентно."""
+    chat_id = user["id"]
+    profile = B.upsert_client(tg_user(user))
+    first_touch = "source" not in profile
+    if first_touch:
+        profile["source"] = B.source_label(param)
+        B.write_json(B.client_path(chat_id), profile)
+    if param.startswith("p_"):
+        try:
+            B.partners.touch(chat_id, param[2:], first_touch)   # привязка на 30 дней по тем же правилам
+        except Exception as exc:
+            B.log.error("miniapp partner touch: %s", exc)
+    elif param.startswith("ref_") and first_touch:
+        try:
+            inviter = int(param[4:])
+        except ValueError:
+            inviter = None
+        profile = B.get_client(chat_id) or profile
+        if (inviter and inviter != chat_id and B.get_client(inviter) and not profile.get("referred_by")
+                and not B.partners.paid_orders(chat_id)):
+            profile["referred_by"] = inviter
+            B.write_json(B.client_path(chat_id), profile)
+            B.add_referral(inviter, chat_id)
+    q = B.partners.quote(chat_id, 100)
+    return {"recorded": first_touch, "source": (B.get_client(chat_id) or {}).get("source"),
+            "discount": {"percent": q["discount"], "label": q["label"]} if q["discount"] else None}
+
+
 def ai_state(order):
     """Состояние AI-картинки заказа: только оплаченный заказ и только если включён ключ генерации."""
     AC = B.ai_card
@@ -360,7 +396,7 @@ def card_ref_from(d, payload, paid=False):
     ref = payload.get("ref")
     if isinstance(payload.get("spec"), dict):
         s = payload["spec"]
-        props = [x for x in (s.get("props") or []) if x in CC.PROP_LABELS][:PC.MAX_PROPS]
+        props = [x for x in (s.get("props") or []) if x in CC.prop_labels()][:PC.MAX_PROPS]
         base = str(s.get("base", ""))
         if base not in B.cardbase.active_ids(product):
             raise err("bad_card", "Такой картинки нет в этом поводе.", 400)
@@ -482,9 +518,15 @@ def routes():
     @endpoint("/card-options", auth=False)
     def card_options():
         CC, PC = B.constructor, B.postcards
-        return {"palettes": CC.PAL_LABELS, "props": CC.PROP_LABELS, "layouts": CC.LAY_LABELS,
+        AC = B.ai_card
+        return {"palettes": CC.PAL_LABELS, "props": CC.prop_labels(), "layouts": CC.LAY_LABELS,
                 "frames": CC.FRAME_LABELS, "animations": CC.ANIM_LABELS, "maxProps": PC.MAX_PROPS,
-                "default": {"pal": "none", "props": [], "lay": "corners", "frame": "none", "anim": "none"}}
+                "default": {"pal": "none", "props": [], "lay": "corners", "frame": "none", "anim": "none"},
+                "ai": {"enabled": AC.enabled(), "maxTries": AC.MAX_TRIES, "maxExtras": AC.MAX_EXTRAS,
+                       "styles": {k: v[0] for k, v in AC.STYLES.items()},
+                       "scenes": {occ: {k: v[0] for k, v in scenes.items()} for occ, scenes in AC.SUBJECTS.items()},
+                       "palettes": {k: v[0] for k, v in AC.PALETTES.items()},
+                       "extras": {k: v[0] for k, v in AC.EXTRAS.items()}}}
 
     @endpoint("/examples", auth=False)
     def examples():
@@ -547,6 +589,9 @@ def routes():
                 raise err("bad_answers", "Слишком длинный ответ — сократи до 1500 знаков.", 400, field=qkey)
             qa.append([text, val])
             flat[qkey] = val
+        source = clean_source(data.get("source")) if data.get("source") else None
+        if data.get("source") and not source:
+            raise err("bad_source", "Метка источника: только латиница, цифры, _ и -, до 40 знаков.", 400)
         tone = p.get("tone") or str(data.get("tone") or answers.get("tone") or "simple")
         if tone not in B.OCC.TONES:
             raise err("bad_tone", "Неизвестный тон письма.", 400)
@@ -566,9 +611,12 @@ def routes():
              ("first_name", "last_name", "username")}, "product": key, "qa": qa, "data": flat, "tone": tone,
              "sign": sign, "name": name, "default_title": p["card_title"].format(name=name)[:40],
              "letter": None, "card_title": None, "card_line": None, "card_ref": None, "card_seen": [],
-             "retexts": 0, "wish_used": False, "promo": None, "created_at": B.now_msk().isoformat()}
+             "retexts": 0, "wish_used": False, "promo": None, "source": source,
+             "created_at": B.now_msk().isoformat()}
         d["api_order_id"] = d["order_id"]
         save_draft(d)
+        if source:
+            apply_attribution(user, source)   # первое касание, если ещё не записано
         B.cb_event(user["id"], "api_order", key, None)
         return {"orderId": d["order_id"], "status": "draft"}
 
@@ -720,6 +768,9 @@ def routes():
             order = B.occ_make_order(user["id"], tg_user(user), {**d, "qa": [tuple(x) for x in d["qa"]],
                                                                  "promo": promo})
             d["order_sig"] = sig_now
+            if d.get("source"):
+                order["source"] = d["source"]   # отчёт /sources считает заказы по этой метке
+                B.save_order(order)
             save_draft(d)
             B.cb_event(user["id"], "buy", d["product"], d.get("card_ref"))
         if order["price_rub"] <= 0:   # скидка и баланс покрыли всё
@@ -965,6 +1016,13 @@ def routes():
             raise err("not_found", "Напоминание не найдено.", 404)
         CR._save(user["id"], profile)
         return {"ok": True}
+
+    @endpoint("/me/attribution", methods=("POST",))
+    def attribution(user):
+        source = clean_source(body().get("source"))
+        if not source:
+            raise err("bad_source", "Метка источника: только латиница, цифры, _ и -, до 40 знаков.", 400)
+        return apply_attribution(user, source)
 
     @endpoint("/me/invite", methods=("POST",))
     def invite(user):
