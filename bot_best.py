@@ -4234,6 +4234,8 @@ def index():
 
 import site_pages  # noqa: E402  сайт «Письма Алисы» на том же Flask
 site_pages.register(app, DATA_DIR)
+import webfonts  # noqa: E402  свои шрифты страниц: /fonts/<имя>, без Google Fonts
+webfonts.register(app)
 import miniapp_share  # noqa: E402  отправка в один тап через мини-приложение Telegram
 miniapp_share.register(app, sys.modules[__name__])
 import miniapp_api  # noqa: E402  API v1 для Mini App (включается MINIAPP_API=1)
@@ -4260,7 +4262,7 @@ def envelope_order(code):
 def envelope_html(title, body, head=""):
     return ('<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" '
             'content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">'
-            f'{head}<title>{esc(title)}</title><style>{ENVELOPE_CSS}</style></head><body><div class="w">{body}</div></body></html>')
+            f'{head}<title>{esc(title)}</title>{webfonts.head()}<style>{ENVELOPE_CSS}</style></head><body><div class="w">{body}</div></body></html>')
 
 
 @app.route("/e/<code>", methods=["GET"])

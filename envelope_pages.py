@@ -7,6 +7,8 @@ open_html — печать «ломается», открытка (GIF, если
 import html
 import re
 
+import webfonts
+
 CSS = """
 :root{--cream:#f6f0e6;--ink:#3b2f2a;--wax:#8f2f2a;--wax2:#b9544c;--gold:#e9c98a}
 *{box-sizing:border-box}
@@ -49,8 +51,8 @@ border-radius:74px 74px 0 0;opacity:0}
 .reveal{opacity:0;transform:translateY(16px);animation:rise .9s ease-out forwards}
 @keyframes rise{to{opacity:1;transform:none}}
 .card{width:100%;border-radius:12px;box-shadow:0 12px 34px rgba(60,40,25,.28);display:block}
-.l p{margin:0 0 1.15em;text-align:left;opacity:0;animation:rise .9s ease-out forwards}
-.sign{font-family:'Bad Script',cursive;font-size:24px;font-style:normal}
+.l p{margin:0 0 1.15em;text-align:left;opacity:0;animation:rise .9s ease-out forwards;font-family:'Playfair Display',Georgia,serif;font-size:18px;line-height:1.75}
+.l p.sign{font-family:'Bad Script',cursive;font-size:26px;line-height:1.4;font-style:normal;text-align:right}
 """
 
 FX = """
@@ -69,7 +71,7 @@ if(Date.now()<end)requestAnimationFrame(f);else x.clearRect(0,0,W,H)})()})();
 def _page(title, head, body, script=""):
     return ('<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" '
             'content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">'
-            f'{head}<title>{html.escape(title)}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Bad+Script&family=Manrope:wght@400;600&family=Playfair+Display:ital,wght@0,600;1,500&display=swap" rel="stylesheet"><style>{CSS}</style></head><body>'
+            f'{head}<title>{html.escape(title)}</title>{webfonts.head()}<style>{CSS}</style></head><body>'
             f'<canvas id="fx"></canvas><div class="w">{body}</div>{script}</body></html>')
 
 
@@ -142,8 +144,11 @@ def open_html(order, code, animated, bot_username):
     esc = html.escape
     img = f"/e/{esc(code)}.gif" if animated else f"/e/{esc(code)}.jpg"
     paragraphs = [p.strip() for p in (order.get("letter_text") or "").replace("\r\n", "\n").split("\n\n") if p.strip()]
-    letter = "".join(f'<p style="animation-delay:{3.4 + i * 0.7:.1f}s">{esc(p).replace(chr(10), "<br>")}</p>'
-                     for i, p in enumerate(paragraphs))
+    last = len(paragraphs) - 1
+    letter = "".join(f'<p style="animation-delay:{3.4 + i * 0.7:.1f}s"'
+                     f'{" class=" + chr(34) + "sign" + chr(34) if i == last and last > 0 and len(p) <= 60 else ""}>'
+                     f'{esc(p).replace(chr(10), "<br>")}</p>'
+                     for i, p in enumerate(paragraphs))   # короткая последняя строка — подпись: Bad Script
     body = (f'<div class="stage"><div class="seal">А</div><div class="half h1"></div><div class="half h2"></div></div>'
             f'<img class="card reveal" style="animation-delay:1.7s" src="{img}" alt="Открытка">'
             f'<div class="l" style="margin-top:28px">{letter}</div>'

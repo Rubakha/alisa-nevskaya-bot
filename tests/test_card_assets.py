@@ -113,4 +113,9 @@ for occ, title, line, sign, pv in (("family", "Папа, это тебе", "Сп
                                    ("family", "Александра Петровна, спасибо вам", "Урок №1: доброта", "Серёжа", True)):
     img = Image.open(io.BytesIO(PC.render(occ, title, line, sign, preview=pv)))
     assert img.size == (PC.W, PC.H)
+
+# веб-шрифты собраны и лежат в репозитории
+web = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "fonts", "web")
+for name in ("playfair.woff", "manrope.woff", "badscript.woff"):
+    assert os.path.getsize(os.path.join(web, name)) > 5000, f"нет веб-шрифта {name}: python tools/make_webfonts.py"
 print("OK: card fonts")

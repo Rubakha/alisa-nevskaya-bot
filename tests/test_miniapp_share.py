@@ -151,3 +151,20 @@ g2 = client.get(f"/e/{code}.gif")
 assert g2.data == g.data, "GIF кэшируется"
 assert os.path.exists(os.path.join(os.environ["DATA_DIR"], "anim_cache", f"{order['order_id']}.gif"))
 print("OK: miniapp share")
+
+# ── свои веб-шрифты вместо Google Fonts ──
+import webfonts  # noqa: E402
+for fname, family in webfonts.FILES.items():
+    r = client.get(f"/fonts/{fname}")
+    assert r.status_code == 200 and r.mimetype == "font/woff" and len(r.data) > 5000, fname
+    assert "immutable" in r.headers["Cache-Control"] and r.headers["Access-Control-Allow-Origin"] == "*", "кэш и CORS для шрифта"
+assert client.get("/fonts/../bot_best.py").status_code == 404 and client.get("/fonts/nope.woff").status_code == 404
+for page in (client.get(f"/e/{code}").get_data(as_text=True), client.get(f"/e/{code}/open").get_data(as_text=True),
+             client.get("/den-otca").get_data(as_text=True), client.get("/e/nope").get_data(as_text=True)):
+    assert "googleapis" not in page and "gstatic" not in page, "внешние CDN убраны"
+    assert "@font-face" in page and "/fonts/playfair.woff" in page and "font-display:swap" in page
+    assert "Caveat" not in page and "Cormorant" not in page and "Jost" not in page
+op = client.get(f"/e/{code}/open").get_data(as_text=True)
+assert op.count('<p style="animation-delay') == 3 and 'class="sign"' in op, "подпись письма — Bad Script (.sign)"
+assert "font-family:'Playfair Display'" in op and "Bad Script" in op
+print("OK: webfonts")

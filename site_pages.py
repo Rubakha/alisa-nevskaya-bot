@@ -10,6 +10,7 @@ from datetime import datetime
 from flask import Response, abort, request, send_file
 
 import occasions as OCC
+import webfonts
 from site_cards import CARDS as CARD_PAGES
 from site_content import FATHER_DAY, PAGES
 from site_special import SPECIAL
@@ -95,8 +96,7 @@ def page(title, desc, body, path, faq=None):
 <meta property="og:title" content="{html.escape(title)}"><meta property="og:description" content="{html.escape(desc)}">
 <meta property="og:type" content="website"><meta property="og:url" content="{canonical}">
 <meta property="og:image" content="{SITE_URL}/card/family.jpg">
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bad+Script&family=Manrope:wght@400;600&family=Playfair+Display:wght@600&display=swap" rel="stylesheet">
+{webfonts.head()}
 <style>{CSS}</style>{ld}</head><body>
 <header><div class="wrap"><a class="logo" href="/">Письма Алисы</a><a href="https://t.me/{BOT}?start=w_home">Открыть в Telegram</a></div></header>
 <main class="wrap">{body}</main>
