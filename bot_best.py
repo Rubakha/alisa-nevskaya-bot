@@ -3840,6 +3840,12 @@ def admin_reply(message):
         return
     try:
         bot.send_message(target, f"💬 Ответ от Алисы:\n\n{parts[2]}")
+        try:   # обращение из приложения получает статус «answered» и текст ответа
+            import support_tickets
+            support_tickets.init(sys.modules[__name__])
+            support_tickets.mark_answered(target, parts[2])
+        except Exception as exc:
+            log.error("support mark answered: %s", exc)
         bot.send_message(message.chat.id, "✅ Отправлено.")
     except Exception as exc:
         bot.send_message(message.chat.id, f"❌ Ошибка: {exc}")
@@ -3914,7 +3920,7 @@ def mailing_send(call):
 
     sent, failed = 0, 0
     for cid in ids:
-        if cid == ADMIN_ID:
+        if cid == ADMIN_ID or (get_client(cid) or {}).get("mailing_off"):   # отписавшиеся от рассылки в приложении пропускаются
             continue
         try:
             bot.send_message(cid, text)

@@ -19,6 +19,7 @@ import json
 import os
 import re
 import secrets
+import sys
 import threading
 import time
 from collections import defaultdict, deque
@@ -532,6 +533,8 @@ def register(app, bot_module):
     APP = app
     cors(app)
     routes()
+    import miniapp_api_v2   # v2: поддержка, подписки, набор, PDF, голос, группы (флаг MINIAPP_API_V2)
+    miniapp_api_v2.register(sys.modules[__name__], B)
     B.log.info("miniapp api v1: включён, origins=%s", ",".join(sorted(origins())))
 
 
@@ -1053,7 +1056,7 @@ def routes():
                 "referralLink": P.friend_link(user["id"]), "friendDiscount": P.FRIEND_DISCOUNT,
                 "friendBonusRub": P.FRIEND_BONUS_RUB,
                 "invitedFriends": len(profile.get("referrals", [])),
-                "isTester": B.is_test_user(user["id"])}
+                "isTester": B.is_test_user(user["id"]), "mailing": not profile.get("mailing_off")}
 
     @endpoint("/me/orders")
     def me_orders(user):
