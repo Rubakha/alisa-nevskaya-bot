@@ -32,3 +32,4 @@ data/
 *.log
 tools/_compare/
 tools/_samples/
+tools/_samples*/

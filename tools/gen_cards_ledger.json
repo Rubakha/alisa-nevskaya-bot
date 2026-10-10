@@ -455,6 +455,774 @@
    "card_id": "sample",
    "usd": 0.008,
    "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T18:47:41",
+   "model": "z-image",
+   "occasion": "family",
+   "card_id": "family-005",
+   "usd": 0.005,
+   "rub": 0.45
+  },
+  {
+   "ts": "2026-10-10T18:47:53",
+   "model": "z-image",
+   "occasion": "family",
+   "card_id": "family-006",
+   "usd": 0.005,
+   "rub": 0.45
+  },
+  {
+   "ts": "2026-10-10T18:48:01",
+   "model": "z-image",
+   "occasion": "family",
+   "card_id": "family-007",
+   "usd": 0.005,
+   "rub": 0.45
+  },
+  {
+   "ts": "2026-10-10T18:48:17",
+   "model": "z-image",
+   "occasion": "family",
+   "card_id": "family-008",
+   "usd": 0.005,
+   "rub": 0.45
+  },
+  {
+   "ts": "2026-10-10T18:48:52",
+   "model": "z-image",
+   "occasion": "birthday",
+   "card_id": "birthday-005",
+   "usd": 0.005,
+   "rub": 0.45
+  },
+  {
+   "ts": "2026-10-10T18:49:04",
+   "model": "z-image",
+   "occasion": "birthday",
+   "card_id": "birthday-006",
+   "usd": 0.005,
+   "rub": 0.45
+  },
+  {
+   "ts": "2026-10-10T18:49:16",
+   "model": "z-image",
+   "occasion": "birthday",
+   "card_id": "birthday-007",
+   "usd": 0.005,
+   "rub": 0.45
+  },
+  {
+   "ts": "2026-10-10T18:49:31",
+   "model": "z-image",
+   "occasion": "birthday",
+   "card_id": "birthday-008",
+   "usd": 0.005,
+   "rub": 0.45
+  },
+  {
+   "ts": "2026-10-10T18:49:47",
+   "model": "z-image",
+   "occasion": "birthday",
+   "card_id": "birthday-009",
+   "usd": 0.013,
+   "rub": 1.17
+  },
+  {
+   "ts": "2026-10-10T18:50:03",
+   "model": "z-image",
+   "occasion": "birthday",
+   "card_id": "birthday-010",
+   "usd": 0.005,
+   "rub": 0.45
+  },
+  {
+   "ts": "2026-10-10T18:50:11",
+   "model": "z-image",
+   "occasion": "birthday",
+   "card_id": "birthday-011",
+   "usd": 0.013,
+   "rub": 1.17
+  },
+  {
+   "ts": "2026-10-10T18:50:22",
+   "model": "z-image",
+   "occasion": "birthday",
+   "card_id": "birthday-012",
+   "usd": 0.013,
+   "rub": 1.17
+  },
+  {
+   "ts": "2026-10-10T18:50:31",
+   "model": "z-image",
+   "occasion": "love",
+   "card_id": "love-005",
+   "usd": 0.013,
+   "rub": 1.17
+  },
+  {
+   "ts": "2026-10-10T18:50:39",
+   "model": "z-image",
+   "occasion": "love",
+   "card_id": "love-006",
+   "usd": 0.005,
+   "rub": 0.45
+  },
+  {
+   "ts": "2026-10-10T18:50:50",
+   "model": "z-image",
+   "occasion": "love",
+   "card_id": "love-007",
+   "usd": 0.013,
+   "rub": 1.17
+  },
+  {
+   "ts": "2026-10-10T18:50:58",
+   "model": "z-image",
+   "occasion": "love",
+   "card_id": "love-008",
+   "usd": 0.013,
+   "rub": 1.17
+  },
+  {
+   "ts": "2026-10-10T18:51:07",
+   "model": "z-image",
+   "occasion": "love",
+   "card_id": "love-009",
+   "usd": 0.013,
+   "rub": 1.17
+  },
+  {
+   "ts": "2026-10-10T18:51:15",
+   "model": "z-image",
+   "occasion": "love",
+   "card_id": "love-010",
+   "usd": 0.013,
+   "rub": 1.17
+  },
+  {
+   "ts": "2026-10-10T18:51:24",
+   "model": "z-image",
+   "occasion": "love",
+   "card_id": "love-011",
+   "usd": 0.013,
+   "rub": 1.17
+  },
+  {
+   "ts": "2026-10-10T18:51:33",
+   "model": "z-image",
+   "occasion": "love",
+   "card_id": "love-012",
+   "usd": 0.013,
+   "rub": 1.17
+  },
+  {
+   "ts": "2026-10-10T18:51:41",
+   "model": "z-image",
+   "occasion": "friend",
+   "card_id": "friend-005",
+   "usd": 0.013,
+   "rub": 1.17
+  },
+  {
+   "ts": "2026-10-10T18:58:33",
+   "model": "flux2",
+   "occasion": "family",
+   "card_id": "family-009",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T18:58:41",
+   "model": "flux2",
+   "occasion": "family",
+   "card_id": "family-010",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T18:58:49",
+   "model": "flux2",
+   "occasion": "family",
+   "card_id": "family-011",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T18:58:57",
+   "model": "flux2",
+   "occasion": "family",
+   "card_id": "family-012",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T18:59:05",
+   "model": "flux2",
+   "occasion": "family",
+   "card_id": "family-013",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T18:59:13",
+   "model": "flux2",
+   "occasion": "family",
+   "card_id": "family-014",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T18:59:21",
+   "model": "flux2",
+   "occasion": "birthday",
+   "card_id": "birthday-013",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T18:59:30",
+   "model": "flux2",
+   "occasion": "birthday",
+   "card_id": "birthday-014",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T18:59:38",
+   "model": "flux2",
+   "occasion": "birthday",
+   "card_id": "birthday-015",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T18:59:46",
+   "model": "flux2",
+   "occasion": "birthday",
+   "card_id": "birthday-016",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T18:59:54",
+   "model": "flux2",
+   "occasion": "birthday",
+   "card_id": "birthday-017",
+   "usd": 0.016,
+   "rub": 1.44
+  },
+  {
+   "ts": "2026-10-10T19:00:04",
+   "model": "flux2",
+   "occasion": "birthday",
+   "card_id": "birthday-018",
+   "usd": 0.024,
+   "rub": 2.16
+  },
+  {
+   "ts": "2026-10-10T19:00:14",
+   "model": "flux2",
+   "occasion": "love",
+   "card_id": "love-013",
+   "usd": 0.016,
+   "rub": 1.44
+  },
+  {
+   "ts": "2026-10-10T19:00:40",
+   "model": "flux2",
+   "occasion": "love",
+   "card_id": "love-014",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:00:48",
+   "model": "flux2",
+   "occasion": "love",
+   "card_id": "love-015",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:00:57",
+   "model": "flux2",
+   "occasion": "love",
+   "card_id": "love-016",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:01:05",
+   "model": "flux2",
+   "occasion": "love",
+   "card_id": "love-017",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:01:13",
+   "model": "flux2",
+   "occasion": "love",
+   "card_id": "love-018",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:01:22",
+   "model": "flux2",
+   "occasion": "friend",
+   "card_id": "friend-006",
+   "usd": 0.048,
+   "rub": 4.32
+  },
+  {
+   "ts": "2026-10-10T19:01:30",
+   "model": "flux2",
+   "occasion": "friend",
+   "card_id": "friend-007",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:01:39",
+   "model": "flux2",
+   "occasion": "friend",
+   "card_id": "friend-008",
+   "usd": 0.134,
+   "rub": 12.06
+  },
+  {
+   "ts": "2026-10-10T19:01:47",
+   "model": "flux2",
+   "occasion": "friend",
+   "card_id": "friend-009",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:01:56",
+   "model": "flux2",
+   "occasion": "friend",
+   "card_id": "friend-010",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:02:04",
+   "model": "flux2",
+   "occasion": "friend",
+   "card_id": "friend-011",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:02:12",
+   "model": "flux2",
+   "occasion": "thanks",
+   "card_id": "thanks-005",
+   "usd": 0.048,
+   "rub": 4.32
+  },
+  {
+   "ts": "2026-10-10T19:02:21",
+   "model": "flux2",
+   "occasion": "thanks",
+   "card_id": "thanks-006",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:02:29",
+   "model": "flux2",
+   "occasion": "thanks",
+   "card_id": "thanks-007",
+   "usd": 0.134,
+   "rub": 12.06
+  },
+  {
+   "ts": "2026-10-10T19:02:41",
+   "model": "flux2",
+   "occasion": "thanks",
+   "card_id": "thanks-008",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:02:49",
+   "model": "flux2",
+   "occasion": "thanks",
+   "card_id": "thanks-009",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:02:56",
+   "model": "flux2",
+   "occasion": "thanks",
+   "card_id": "thanks-010",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:03:05",
+   "model": "flux2",
+   "occasion": "sorry",
+   "card_id": "sorry-005",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:03:16",
+   "model": "flux2",
+   "occasion": "sorry",
+   "card_id": "sorry-006",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:03:31",
+   "model": "flux2",
+   "occasion": "sorry",
+   "card_id": "sorry-007",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:03:39",
+   "model": "flux2",
+   "occasion": "sorry",
+   "card_id": "sorry-008",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:03:43",
+   "model": "flux2",
+   "occasion": "sorry",
+   "card_id": "sorry-009",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:03:52",
+   "model": "flux2",
+   "occasion": "sorry",
+   "card_id": "sorry-010",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:04:00",
+   "model": "flux2",
+   "occasion": "support",
+   "card_id": "support-005",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:04:08",
+   "model": "flux2",
+   "occasion": "support",
+   "card_id": "support-006",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:04:17",
+   "model": "flux2",
+   "occasion": "support",
+   "card_id": "support-007",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:04:25",
+   "model": "flux2",
+   "occasion": "support",
+   "card_id": "support-008",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:04:35",
+   "model": "flux2",
+   "occasion": "support",
+   "card_id": "support-009",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:04:42",
+   "model": "flux2",
+   "occasion": "support",
+   "card_id": "support-010",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:04:50",
+   "model": "flux2",
+   "occasion": "toast",
+   "card_id": "toast-005",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:04:58",
+   "model": "flux2",
+   "occasion": "toast",
+   "card_id": "toast-006",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:05:06",
+   "model": "flux2",
+   "occasion": "toast",
+   "card_id": "toast-007",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:05:14",
+   "model": "flux2",
+   "occasion": "toast",
+   "card_id": "toast-008",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:05:23",
+   "model": "flux2",
+   "occasion": "toast",
+   "card_id": "toast-009",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:05:31",
+   "model": "flux2",
+   "occasion": "toast",
+   "card_id": "toast-010",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:05:39",
+   "model": "flux2",
+   "occasion": "newyear",
+   "card_id": "newyear-005",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:05:47",
+   "model": "flux2",
+   "occasion": "newyear",
+   "card_id": "newyear-006",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:05:55",
+   "model": "flux2",
+   "occasion": "newyear",
+   "card_id": "newyear-007",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:06:04",
+   "model": "flux2",
+   "occasion": "newyear",
+   "card_id": "newyear-008",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:06:12",
+   "model": "flux2",
+   "occasion": "newyear",
+   "card_id": "newyear-009",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:06:20",
+   "model": "flux2",
+   "occasion": "newyear",
+   "card_id": "newyear-010",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:06:28",
+   "model": "flux2",
+   "occasion": "santa",
+   "card_id": "santa-005",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:06:36",
+   "model": "flux2",
+   "occasion": "santa",
+   "card_id": "santa-006",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:06:44",
+   "model": "flux2",
+   "occasion": "santa",
+   "card_id": "santa-007",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:06:53",
+   "model": "flux2",
+   "occasion": "santa",
+   "card_id": "santa-008",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:07:01",
+   "model": "flux2",
+   "occasion": "santa",
+   "card_id": "santa-009",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:07:11",
+   "model": "flux2",
+   "occasion": "santa",
+   "card_id": "santa-010",
+   "usd": 0.008,
+   "rub": 0.72
+  },
+  {
+   "ts": "2026-10-10T19:07:57",
+   "model": "nano-pro",
+   "occasion": "family",
+   "card_id": "family-015",
+   "usd": 0.126,
+   "rub": 11.34
+  },
+  {
+   "ts": "2026-10-10T19:08:33",
+   "model": "nano-pro",
+   "occasion": "family",
+   "card_id": "family-016",
+   "usd": 0.126,
+   "rub": 11.34
+  },
+  {
+   "ts": "2026-10-10T19:09:18",
+   "model": "nano-pro",
+   "occasion": "family",
+   "card_id": "family-017",
+   "usd": 0.126,
+   "rub": 11.34
+  },
+  {
+   "ts": "2026-10-10T19:09:57",
+   "model": "nano-pro",
+   "occasion": "family",
+   "card_id": "family-018",
+   "usd": 0.126,
+   "rub": 11.34
+  },
+  {
+   "ts": "2026-10-10T19:10:43",
+   "model": "nano-pro",
+   "occasion": "family",
+   "card_id": "family-019",
+   "usd": 0.126,
+   "rub": 11.34
+  },
+  {
+   "ts": "2026-10-10T19:11:18",
+   "model": "nano-pro",
+   "occasion": "family",
+   "card_id": "family-020",
+   "usd": 0.126,
+   "rub": 11.34
+  },
+  {
+   "ts": "2026-10-10T19:11:57",
+   "model": "nano-pro",
+   "occasion": "birthday",
+   "card_id": "birthday-019",
+   "usd": 0.126,
+   "rub": 11.34
+  },
+  {
+   "ts": "2026-10-10T19:12:37",
+   "model": "nano-pro",
+   "occasion": "birthday",
+   "card_id": "birthday-020",
+   "usd": 0.126,
+   "rub": 11.34
+  },
+  {
+   "ts": "2026-10-10T19:13:17",
+   "model": "nano-pro",
+   "occasion": "birthday",
+   "card_id": "birthday-021",
+   "usd": 0.126,
+   "rub": 11.34
+  },
+  {
+   "ts": "2026-10-10T19:13:55",
+   "model": "nano-pro",
+   "occasion": "birthday",
+   "card_id": "birthday-022",
+   "usd": 0.126,
+   "rub": 11.34
+  },
+  {
+   "ts": "2026-10-10T19:16:59",
+   "model": "nano-pro",
+   "occasion": "thanks",
+   "card_id": "thanks-011",
+   "usd": 0.126,
+   "rub": 11.34
+  },
+  {
+   "ts": "2026-10-10T19:17:26",
+   "model": "nano-pro",
+   "occasion": "thanks",
+   "card_id": "thanks-012",
+   "usd": 0.252,
+   "rub": 22.68
+  },
+  {
+   "ts": "2026-10-10T19:18:04",
+   "model": "nano-pro",
+   "occasion": "thanks",
+   "card_id": "thanks-013",
+   "usd": 0.126,
+   "rub": 11.34
+  },
+  {
+   "ts": "2026-10-10T19:18:50",
+   "model": "nano-pro",
+   "occasion": "love",
+   "card_id": "love-019",
+   "usd": 0.126,
+   "rub": 11.34
+  },
+  {
+   "ts": "2026-10-10T19:19:22",
+   "model": "nano-pro",
+   "occasion": "love",
+   "card_id": "love-020",
+   "usd": 0.126,
+   "rub": 11.34
   }
  ]
 }

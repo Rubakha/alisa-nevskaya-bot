@@ -136,8 +136,15 @@ def refresh_if_changed(max_age=30):
 def active_ids(occasion):
     refresh_if_changed()
     with closing(_connect()) as c:
-        rows = c.execute("SELECT id FROM cards WHERE occasion=? AND status='active' ORDER BY id", (occasion,))
+        rows = c.execute("SELECT id FROM cards WHERE occasion=? AND status='active' ORDER BY (cost_rub >= 10) DESC, id", (occasion,))
         return [r["id"] for r in rows if file_exists(r["id"])]
+
+
+def premium_ids(occasion):
+    """Фоны высшего качества (nano-pro, ≥10 ₽ за картинку): в выдаче и в сетке идут первыми."""
+    with closing(_connect()) as c:
+        rows = c.execute("SELECT id FROM cards WHERE occasion=? AND status='active' AND cost_rub >= 10", (occasion,))
+        return {r["id"] for r in rows}
 
 
 def pick_ref(chat_id, occasion, seen=()):
@@ -148,6 +155,7 @@ def pick_ref(chat_id, occasion, seen=()):
     with closing(_connect()) as c:
         taken = {r["card_ref"]: r["at"] for r in
                  c.execute("SELECT card_ref, at FROM user_cards WHERE chat_id=?", (chat_id,))}
+    prem = premium_ids(occasion)
     rnd = random.Random(f"{chat_id}:{occasion}")
     # композиции с реквизитом поверх фото (чашка, веточка, конверт) выглядят «висящими» — по умолчанию выдаём чистые фоны;
     # реквизит появляется, только если клиент сам выбрал его в конструкторе (CARD_PROPS_VARIANTS=1 вернёт старое поведение)
@@ -157,6 +165,7 @@ def pick_ref(chat_id, occasion, seen=()):
     for group in (bases, comps):  # настоящие фоны раньше композиций
         group = sorted(group)
         rnd.shuffle(group)
+        group.sort(key=lambda b: 0 if b.split("~")[0] in prem else 1)  # дорогие по виду — вперёд, внутри групп порядок случайный
         ordered += group
     ranked = [r for r in ordered if r not in taken]
     ranked += sorted((r for r in ordered if r in taken), key=lambda r: taken[r])

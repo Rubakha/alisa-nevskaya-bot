@@ -286,11 +286,11 @@ def cmd_sample(a):
     est = len(keys) * m["usd"] * USD_RUB
     guards(a.confirm_spend, est)
     key = load_key()
-    out_dir = Path(__file__).resolve().parent / "_samples"
+    out_dir = Path(__file__).resolve().parent / a.out_dir
     out_dir.mkdir(exist_ok=True)
     spent_rub = 0.0
     for occ in keys:
-        prompt = prompts[occ] + ". " + STYLE
+        prompt = prompts[occ] if a.raw_prompts else prompts[occ] + ". " + STYLE
         img, spent = generate(key, a.model, prompt)
         usd = spent if spent is not None else m["usd"]
         rub = round(usd * USD_RUB, 2)
@@ -353,6 +353,8 @@ def main():
         p.add_argument("--report", action="store_true", help="записать итог в отчёт через done.py")
         p.add_argument("--prompts", default=str(Path(__file__).resolve().parent / "prompts_v2.json"))
         p.add_argument("--occasion-only", default=None)
+        p.add_argument("--raw-prompts", action="store_true", help="не добавлять STYLE к промптам из файла")
+        p.add_argument("--out-dir", default="_samples")
         p.set_defaults(fn=fn)
     a = ap.parse_args()
     a.fn(a)
