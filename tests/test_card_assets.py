@@ -45,6 +45,19 @@ for lay in PC.LAYOUTS:
         assert centre.getextrema() == ((240, 240), (240, 240), (240, 240)), (lay, n)
 print("props ok")
 
+# русские подписи у всех предметов, которые лежат в assets/props сейчас (иначе в конструкторе появятся «Quill pen»)
+real = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "props")
+for f in sorted(os.listdir(real)):
+    if f.endswith(".png"):
+        name = f[:-4]
+        assert name in CC.PROP_LABELS and not CC.PROP_LABELS[name].startswith("🖼"), f"нет русской подписи: {name}"
+for name in ("quill_pen", "candle_brass", "pressed_daisies", "eucalyptus_sprig", "wheat_ears", "lavender_sprig",
+             "dried_rose", "heart_locket", "pine_branch", "ornament_ball", "snowflake_lace", "cinnamon_orange",
+             "cake_slice", "teapot_cream", "pocket_watch", "old_book", "wax_seal_stamp", "ivy_sprig", "pearl_string",
+             "gift_box_small"):
+    assert name in CC.PROP_LABELS, name
+assert CC.PROP_LABELS["quill_pen"] == "🪶 Перо" and CC.PROP_LABELS["snowflake_lace"] == "❄️ Кружевная снежинка"
+
 # ── фоны ──
 bgs, data = tempfile.mkdtemp(), tempfile.mkdtemp()
 os.makedirs(os.path.join(bgs, "birthday"))

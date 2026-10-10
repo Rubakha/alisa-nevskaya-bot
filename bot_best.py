@@ -1827,7 +1827,7 @@ def gift_menu(call):
 def gift_link(call):
     chat_id = call.message.chat.id
     profile = get_client(chat_id) or {}
-    link = f"https://t.me/{BOT_USERNAME}?start=ref_{chat_id}"
+    link = partners.friend_link(chat_id)
     text = (
         "✍️ <b>Ссылка для друга</b>\n\n"
         f"<code>{link}</code>\n\n"
@@ -2555,10 +2555,16 @@ def occ_gift_code(order):
     return code
 
 
+def envelope_base():
+    """Адрес, на котором получатель открывает конверт: ENVELOPE_BASE (короткий домен приложения, он проксирует /e/<код> на нас),
+    иначе адрес сайта бота. Без переменной ничего не меняется."""
+    import site_pages
+    return (os.getenv("ENVELOPE_BASE") or site_pages.SITE_URL).strip().rstrip("/")
+
+
 def occ_gift_link(order):
     """Ссылка для получателя — красивая страница-конверт на сайте (не бот): там открытка, печать и анимация."""
-    import site_pages
-    return f"{site_pages.SITE_URL}/e/{occ_gift_code(order)}"
+    return f"{envelope_base()}/e/{occ_gift_code(order)}"
 
 
 def occ_bot_link(order):
@@ -2568,8 +2574,7 @@ def occ_bot_link(order):
 
 def occ_web_envelope(order):
     """Конверт в браузере — для получателей без Telegram (заказы из VK)."""
-    import site_pages
-    return f"{site_pages.SITE_URL}/e/{occ_gift_code(order)}"
+    return f"{envelope_base()}/e/{occ_gift_code(order)}"
 
 
 def occ_postcard(order, preview=False):
@@ -3035,7 +3040,7 @@ def free_callbacks(call):
 def invite_friend(message):
     chat_id = message.chat.id
     profile = get_client(chat_id) or {}
-    link = f"https://t.me/{BOT_USERNAME}?start=ref_{chat_id}"
+    link = partners.friend_link(chat_id)
     bot.send_message(
         chat_id,
         "👥 <b>Пригласить друга</b>\n\n"
@@ -4263,7 +4268,7 @@ def envelope_closed(code):
     order = envelope_order(code)
     if not order:
         return envelope_html("Конверт не найден", "<h2>Конверт не найден 😔</h2><p>Возможно, ссылка скопирована не полностью.</p>"), 404
-    return envelope_pages.closed_html(order, code, site_pages.SITE_URL, BOT_USERNAME)
+    return envelope_pages.closed_html(order, code, envelope_base(), BOT_USERNAME)   # og:image и og:url — на домене ссылки
 
 
 @app.route("/e/<code>/open", methods=["GET"])

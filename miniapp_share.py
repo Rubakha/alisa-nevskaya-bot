@@ -58,7 +58,8 @@ def open_link(order, code, site):
     ENVELOPE_LINK=bot — аварийный режим: конверт внутри бота, если сайт недоступен."""
     if (B.os.getenv("ENVELOPE_LINK", "web") if B else "web") == "bot":
         return f"https://t.me/{B.BOT_USERNAME}?start=g_{code}"
-    return f"{site}/e/{code}"
+    base = B.envelope_base() if B and hasattr(B, "envelope_base") else site
+    return f"{base}/e/{code}"
 
 
 def button_label(order):

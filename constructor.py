@@ -16,6 +16,13 @@ PROP_LABELS = {
     "dried_bouquet": "💐 Сухоцветы", "olive_branch": "🌿 Оливковая ветка", "ribbon_bow": "🎀 Бант",
     "envelope_cream": "✉️ Конверт", "envelope_kraft": "📜 Крафт-конверт", "gift_tag": "🏷 Бирка",
     "lace_doily": "🕸 Кружево", "stamps_key": "🔑 Марки и ключ", "tea_cup": "☕ Чашка", "postcard": "💌 Открытка",
+    # вторая партия реквизита (10.10.2026)
+    "quill_pen": "🪶 Перо", "candle_brass": "🕯 Свеча", "pressed_daisies": "🌼 Ромашки", "eucalyptus_sprig": "🌿 Эвкалипт",
+    "wheat_ears": "🌾 Колосья", "lavender_sprig": "💜 Лаванда", "dried_rose": "🌹 Сухая роза", "heart_locket": "🤍 Медальон",
+    "pine_branch": "🌲 Хвоя", "ornament_ball": "🎄 Ёлочный шар", "snowflake_lace": "❄️ Кружевная снежинка",
+    "cinnamon_orange": "🍊 Корица и апельсин", "cake_slice": "🍰 Кусочек торта", "teapot_cream": "🫖 Чайник",
+    "pocket_watch": "⏱ Карманные часы", "old_book": "📖 Старая книга", "wax_seal_stamp": "🔴 Сургучная печать",
+    "ivy_sprig": "🍃 Плющ", "pearl_string": "⚪ Жемчуг", "gift_box_small": "🎁 Подарок",
 }
 
 

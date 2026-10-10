@@ -133,7 +133,7 @@ python bot_best.py          # polling + Flask на порту STATS_PORT (по �
 
 ## 5. Переменные окружения
 `MINIAPP_API=1` — включить. `MINIAPP_ORIGINS` — дополнительные адреса фронтенда через запятую.
-`MINIAPP_RETURN_URL` — куда вернуть после оплаты (по умолчанию `https://alisa-letters.pages.dev`, добавляется `/?paid=<id>`).
+`ENVELOPE_BASE` — адрес для ссылок-конвертов получателя (`{ENVELOPE_BASE}/e/<код>`, по умолчанию адрес сайта бота; сайт-приложение проксирует `/e/<код>` на бота, og-метки превью строятся на том же домене). `MINIAPP_SHORTNAME` — короткое имя Main Mini App (по умолчанию `app`): реферальная ссылка `https://t.me/<бот>/app?startapp=ref_<chat_id>` и приглашение группы `…?startapp=grp_<код>`. Старые ссылки `?start=ref_<id>` работают как раньше. `MINIAPP_RETURN_URL` — куда вернуть после оплаты (по умолчанию `https://alisa-letters.pages.dev`, добавляется `/?paid=<id>`).
 `MINIAPP_GEN_DAILY_CAP` — писем ИИ в сутки (300). `TEST_USERNAMES`, `MINIAPP_TESTER_GEN_CAP`, `MINIAPP_TESTER_AI_CAP` — тестеры (см. 2.2). `WAVESPEED_API_KEY`, `AI_CARD_DAILY_CAP` — как у бота. Для оплаты — `YOOKASSA_SHOP_ID/SECRET_KEY`
 (и `YOOKASSA_RECEIPT=1` → в `pay` нужна почта `email`).
 

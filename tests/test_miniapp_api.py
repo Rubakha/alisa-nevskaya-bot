@@ -326,7 +326,7 @@ assert any(o["order_id"] == oid for o in B.client_orders(500))
 mo = j(call("get", "/me/orders"))["items"]
 assert mo[0]["orderId"] == oid and mo[0]["status"] == "delivered" and mo[0]["envelopeUrl"]
 me = j(call("get", "/me"))
-assert me["ordersDone"] == 1 and me["referralLink"].endswith("start=ref_500") and me["friendDiscount"] == 10
+assert me["ordersDone"] == 1 and me["referralLink"] == f"https://t.me/{B.BOT_USERNAME}/app?startapp=ref_500" and me["friendDiscount"] == 10
 
 # ── отправка получателю ──
 M = A.miniapp_share
@@ -397,7 +397,7 @@ assert call("delete", f"/me/reminders/{rid}", user=777).status_code in (404,)
 assert call("delete", f"/me/reminders/{rid}").status_code == 200
 assert j(call("get", "/me/reminders"))["items"] == []
 inv = j(call("post", "/me/invite"))
-assert inv["link"].endswith("start=ref_500") and "−10%" in inv["text"] and "t.me/share/url" in inv["shareUrl"]
+assert inv["link"] == f"https://t.me/{B.BOT_USERNAME}/app?startapp=ref_500" and "−10%" in inv["text"] and "t.me/share/url" in inv["shareUrl"]
 
 # ── атрибуция из приложения (start_param) ──
 assert call("post", "/me/attribution", user=610, data={"source": "bad source!"}).status_code == 400
@@ -590,6 +590,25 @@ for _ in range(50):
 r = call("post", f"/orders/{t_oid}/ai-card", user=640, data=good)
 assert r.status_code == 429 and j(r)["error"]["code"] == "daily_cap", r.get_data(as_text=True)
 os.environ.pop("MINIAPP_TESTER_AI_CAP")
+
+# ── короткая ссылка-конверт: ENVELOPE_BASE ──
+ev_code = B.occ_gift_code(B.get_order(oid))
+assert B.occ_web_envelope(B.get_order(oid)) == f"{B.site_pages.SITE_URL}/e/{ev_code}", "без переменной ничего не меняется"
+os.environ["ENVELOPE_BASE"] = "https://alisa-letters.pages.dev/"
+try:
+    short = f"https://alisa-letters.pages.dev/e/{ev_code}"
+    assert B.occ_web_envelope(B.get_order(oid)) == short and B.occ_gift_link(B.get_order(oid)) == short
+    assert j(call("get", f"/orders/{oid}"))["envelopeUrl"] == short
+    assert j(call("post", f"/orders/{oid}/send"))["envelopeUrl"] == short
+    assert short.replace("https://", "https%3A%2F%2F").replace("/", "%2F") in B.occ_share_url(B.get_order(oid))
+    assert A.miniapp_share.prepared_result(B.get_order(oid), ev_code, B.site_pages.SITE_URL)["reply_markup"][
+        "inline_keyboard"][0][0]["url"] == short
+    og = client.get(f"/e/{ev_code}").get_data(as_text=True)
+    assert f'og:image" content="{short}.jpg"' in og and f'og:url" content="{short}"' in og, "превью ссылки — на коротком домене"
+    assert j(call("get", "/me/orders"))["items"][0]["envelopeUrl"] == short
+finally:
+    os.environ.pop("ENVELOPE_BASE")
+assert B.occ_web_envelope(B.get_order(oid)).startswith(B.site_pages.SITE_URL)
 
 # ── лимит запросов на человека ──
 A.USER_PER_MIN = 3

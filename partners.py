@@ -961,7 +961,9 @@ def offer_cabinet(chat_id):
 
 # ── «Подари подруге» ────────────────────────────────────────────
 def friend_link(chat_id):
-    return f"https://t.me/{B.BOT_USERNAME}?start=ref_{chat_id}"
+    """Ссылка «Подари подруге»: открывает приложение (Main Mini App), метка ref_<id> приходит как start_param и
+    записывается через POST /me/attribution. Старые ссылки t.me/<бот>?start=ref_<id> работают как раньше."""
+    return f"https://t.me/{B.BOT_USERNAME}/{os.getenv('MINIAPP_SHORTNAME', 'app')}?startapp=ref_{chat_id}"
 
 
 def friend_gift_markup(chat_id):
