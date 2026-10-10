@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import os
+os.environ["ENVELOPE_BASE"] = "off"  # старое поведение: ссылки на адрес бота; короткий адрес по умолчанию проверяется отдельно
 import sys
 import tempfile
 import threading
@@ -604,10 +605,10 @@ try:
     assert A.miniapp_share.prepared_result(B.get_order(oid), ev_code, B.site_pages.SITE_URL)["reply_markup"][
         "inline_keyboard"][0][0]["url"] == short
     og = client.get(f"/e/{ev_code}").get_data(as_text=True)
-    assert f'og:image" content="{short}.jpg"' in og and f'og:url" content="{short}"' in og, "превью ссылки — на коротком домене"
+    assert f'og:image" content="{B.site_pages.SITE_URL}/e/{ev_code}.jpg"' in og and f'og:url" content="{short}"' in og, "og:url — на коротком домене, картинка превью — на адресе бота (прокси сайта её не отдаёт)"
     assert j(call("get", "/me/orders"))["items"][0]["envelopeUrl"] == short
 finally:
-    os.environ.pop("ENVELOPE_BASE")
+    os.environ["ENVELOPE_BASE"] = "off"
 assert B.occ_web_envelope(B.get_order(oid)).startswith(B.site_pages.SITE_URL)
 
 # ── лимит запросов на человека ──
@@ -631,3 +632,10 @@ A.B = B
 blob = json.dumps(j(call("get", f"/orders/{oid}")), ensure_ascii=False) + json.dumps(j(call("get", "/me")))
 assert TOKEN not in blob and "secret" not in blob and "hash=" not in blob
 print("OK: miniapp api")
+
+# короткий адрес по умолчанию (без переменной) и аварийный возврат ENVELOPE_BASE=off
+os.environ.pop("ENVELOPE_BASE")
+assert B.envelope_base() == "https://alisa-letters.pages.dev", B.envelope_base()
+os.environ["ENVELOPE_BASE"] = "off"
+assert B.envelope_base() == B.site_pages.SITE_URL
+print("OK: envelope base default")

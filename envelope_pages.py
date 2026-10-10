@@ -120,7 +120,7 @@ def _names(order):
     return (order.get("gift_for") or "").strip(), from_whom(order)
 
 
-def closed_html(order, code, site, bot_username):
+def closed_html(order, code, site, bot_username, image_site=None):
     """Закрытый конверт: печать, кнопка «Вскрыть письмо от …», og-метки для превью."""
     name, who = _names(order)
     title = f"💌 {name}, тебе письмо от {who}" if name else f"💌 Тебе письмо от {who}"
@@ -128,7 +128,7 @@ def closed_html(order, code, site, bot_username):
     esc = html.escape
     head = (f'<meta property="og:type" content="website"><meta property="og:title" content="{esc(title)}">'
             f'<meta property="og:description" content="{esc(desc)}">'
-            f'<meta property="og:image" content="{site}/e/{esc(code)}.jpg">'
+            f'<meta property="og:image" content="{image_site or site}/e/{esc(code)}.jpg">'
             f'<meta property="og:url" content="{site}/e/{esc(code)}"><meta name="twitter:card" content="summary_large_image">')
     body = (f'<div class="env"><div class="flap"></div><div class="seal">А</div></div>'
             f'<h1>💌 {esc(name) + ", тебе" if name else "Тебе"} письмо</h1>'

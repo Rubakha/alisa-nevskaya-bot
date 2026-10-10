@@ -2559,7 +2559,8 @@ def envelope_base():
     """Адрес, на котором получатель открывает конверт: ENVELOPE_BASE (короткий домен приложения, он проксирует /e/<код> на нас),
     иначе адрес сайта бота. Без переменной ничего не меняется."""
     import site_pages
-    return (os.getenv("ENVELOPE_BASE") or site_pages.SITE_URL).strip().rstrip("/")
+    base = (os.getenv("ENVELOPE_BASE") or "https://alisa-letters.pages.dev").strip().rstrip("/")  # короткий адрес сайта (прокси /e/<код>)
+    return site_pages.SITE_URL if base.lower() in ("off", "bot", "0") else base  # ENVELOPE_BASE=off — аварийно обратно на адрес бота
 
 
 def occ_gift_link(order):
@@ -4270,7 +4271,7 @@ def envelope_closed(code):
     order = envelope_order(code)
     if not order:
         return envelope_html("Конверт не найден", "<h2>Конверт не найден 😔</h2><p>Возможно, ссылка скопирована не полностью.</p>"), 404
-    return envelope_pages.closed_html(order, code, envelope_base(), BOT_USERNAME)   # og:image и og:url — на домене ссылки
+    return envelope_pages.closed_html(order, code, envelope_base(), BOT_USERNAME, image_site=site_pages.SITE_URL)   # og:url — на домене ссылки; картинка превью отдаётся только ботом
 
 
 @app.route("/e/<code>/open", methods=["GET"])

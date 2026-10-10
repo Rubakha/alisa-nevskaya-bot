@@ -4,7 +4,8 @@
 import hashlib
 import hmac
 import json
-import os
+import os
+os.environ["ENVELOPE_BASE"] = "off"  # старое поведение: ссылки на адрес бота; короткий адрес по умолчанию проверяется отдельно
 import sys
 import tempfile
 import time
