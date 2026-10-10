@@ -99,7 +99,8 @@ assert menu and menu[-1][1][0] == 500 and menu[-1][1][1].text == "Письмо" 
 assert B.get_client(500)["source"] == "direct"
 assert not [x for x in sent(since=n) if isinstance(x[2].get("reply_markup"), types.ReplyKeyboardMarkup)], \
     "нижней клавиатуры нет"
-assert not DELETED, "у нового клиента старой клавиатуры нет — служебных сообщений нет"
+assert any(isinstance(x[2].get("reply_markup"), types.ReplyKeyboardRemove) for x in sent(since=n)), "старая клавиатура снята"
+assert len(DELETED) == 1 and B.get_client(500)["kb_removed"], "служебное сообщение удалено, флаг kb_removed стоит"
 assert isinstance(B.kb_client(), types.ReplyKeyboardRemove)
 
 # ── метка источника: тема передаётся в приложение, атрибуция сохраняется ──
@@ -169,7 +170,7 @@ B.write_json(B.client_path(505), old)
 n = len(SENT)
 dispatch(msg("/start", chat=505))
 dispatch(msg("/start", chat=505))
-assert len(DELETED) == 1 and DELETED[0][0] == 505, "служебное сообщение для снятия клавиатуры — один раз"
+assert len([d for d in DELETED if d[0] == 505]) == 1, "служебное сообщение для снятия клавиатуры — один раз"
 rm = [x for x in sent(since=n) if isinstance(x[2].get("reply_markup"), types.ReplyKeyboardRemove)]
 assert len(rm) == 1
 
@@ -194,7 +195,16 @@ n = len(SENT)
 assert dispatch(msg("Не пришло письмо", chat=500)) == "support_receive"
 assert any(s[1][0] == 1 and "Обращение в поддержку" in s[1][1] for s in sent(since=n)), "обращение дошло до владельца"
 
-# ── свободный текст вне сценария ──
+# ── свободный текст вне сценария: клавиатура снимается и у того, кто ещё не делал /start ──
+old2 = B.upsert_client(user(506))
+old2["created_at"] = "2026-10-01T10:00:00+03:00"
+B.write_json(B.client_path(506), old2)
+n, d0 = len(SENT), len(DELETED)
+dispatch(msg("привет", chat=506))
+assert len(DELETED) == d0 + 1 and any(isinstance(x[2].get("reply_markup"), types.ReplyKeyboardRemove) for x in sent(since=n))
+assert B.get_client(506)["kb_removed"]
+dispatch(msg("ещё раз", chat=506))
+assert len(DELETED) == d0 + 1, "повторно не шлём"
 B.STATES.pop(500, None)
 n = len(SENT)
 assert dispatch(msg("привет, как дела?", chat=500)) == "fallback"

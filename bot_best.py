@@ -475,12 +475,12 @@ def ensure_menu_button(chat_id, force=False):
 
 def drop_old_keyboard(chat_id, once=True):
     """Убирает старую нижнюю клавиатуру клиента: пустое служебное сообщение с ReplyKeyboardRemove и сразу удаляем.
-    once — только один раз на человека (флаг в профиле); у нового клиента старой клавиатуры нет."""
+    once — только один раз на человека (флаг kb_removed в профиле); повторять безопасно."""
     profile = get_client(chat_id)
-    if once and (profile is None or profile.get("kb_dropped")):
+    if once and (profile is None or profile.get("kb_removed")):
         return
     if profile is not None:
-        profile["kb_dropped"] = True
+        profile["kb_removed"] = True
         write_json(client_path(chat_id), profile)
     try:
         msg = bot.send_message(chat_id, "🤍", reply_markup=types.ReplyKeyboardRemove())
@@ -639,17 +639,11 @@ def start_topic(param):
     return key if key in OCC.PRODUCTS else None
 
 
-def start_in_app(chat_id, user, parts, greet, invited, referred_by, is_new=False):
+def start_in_app(chat_id, user, parts, greet, invited, referred_by):
     """Режим APP_ONLY: короткое приветствие и одна кнопка в приложение. Атрибуция, реферал и скидки уже учтены выше."""
     param = parts[1] if len(parts) == 2 else ""
     ensure_menu_button(chat_id, force=True)
-    if is_new:   # у нового клиента старой клавиатуры нет — только помечаем
-        profile = get_client(chat_id)
-        if profile is not None:
-            profile["kb_dropped"] = True
-            write_json(client_path(chat_id), profile)
-    else:
-        drop_old_keyboard(chat_id)
+    drop_old_keyboard(chat_id)
     text = (f"💌 <b>Алиса Невская</b>\n\n"
             f"{greet} Я пишу письма к поводам — для тех, кому трудно найти слова.\n"
             f"{invited}\n"
@@ -726,7 +720,7 @@ def cmd_start(message):
     invited = invited or partner_hello or ""
 
     if app_only():
-        start_in_app(chat_id, message.from_user, parts, greet, invited, referred_by, is_new)
+        start_in_app(chat_id, message.from_user, parts, greet, invited, referred_by)
         return
     if profile.get("app_menu"):  # откат на старое меню: кнопка меню чата снова обычная
         try:
@@ -4130,6 +4124,7 @@ LEGACY_ENTRY_PREFIXES = ("occ:p:", "occ:go:")
 
 def send_app_button(chat_id, text="Всё теперь в приложении: письма, открытки, кабинет и приглашения 🤍", **params):
     ensure_menu_button(chat_id)
+    drop_old_keyboard(chat_id)   # у всех, кто заходил раньше, старая клавиатура висит, пока бот её не уберёт
     bot.send_message(chat_id, text, reply_markup=app_markup(**params))
 
 
