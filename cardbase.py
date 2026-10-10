@@ -113,7 +113,10 @@ def pick_ref(chat_id, occasion, seen=()):
         taken = {r["card_ref"]: r["at"] for r in
                  c.execute("SELECT card_ref, at FROM user_cards WHERE chat_id=?", (chat_id,))}
     rnd = random.Random(f"{chat_id}:{occasion}")
-    comps = [f"{b}~{n}" for b in bases for n in range(1, VARIANTS + 1)]
+    # композиции с реквизитом поверх фото (чашка, веточка, конверт) выглядят «висящими» — по умолчанию выдаём чистые фоны;
+    # реквизит появляется, только если клиент сам выбрал его в конструкторе (CARD_PROPS_VARIANTS=1 вернёт старое поведение)
+    comps = ([f"{b}~{n}" for b in bases for n in range(1, VARIANTS + 1)]
+             if os.getenv("CARD_PROPS_VARIANTS", "").lower() in ("1", "true", "yes") else [])
     ordered = []
     for group in (bases, comps):  # настоящие фоны раньше композиций
         group = sorted(group)

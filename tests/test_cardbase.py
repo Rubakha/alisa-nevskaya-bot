@@ -46,6 +46,16 @@ assert cardbase.get_card("birthday-009")["status"] == "retired"
 assert "birthday-009" not in [c["id"] for c in cardbase.review_queue()]
 assert "birthday-009" not in cardbase.active_ids("birthday")
 
+# по умолчанию — только чистые фоны, без реквизита поверх фото
+clean = []
+for _ in range(2):
+    r = cardbase.pick_ref(7, "birthday", clean)
+    assert r not in clean and "~" not in r, r
+    clean.append(r)
+assert set(clean) == {"birthday-001", "birthday-002"}
+assert "~" not in cardbase.pick_ref(7, "birthday", clean), "всё просмотрено — снова чистый фон, не композиция"
+os.environ["CARD_PROPS_VARIANTS"] = "1"   # старое поведение включается переменной
+
 seen = []
 for _ in range(2 + 2 * cardbase.VARIANTS):  # все варианты повода без повторов
     r = cardbase.pick_ref(7, "birthday", seen)
@@ -64,6 +74,7 @@ s2 = []
 for _ in range(len(seen)):
     s2.append(cardbase.pick_ref(7, "birthday", s2))
 assert s2[-1] == seen[0] and len(set(s2)) == len(seen), "взятая картинка предлагается последней"
+os.environ.pop("CARD_PROPS_VARIANTS", None)
 
 # ── 2. рендер: композиция воспроизводима и отличается от фона ──
 import postcards  # noqa: E402
@@ -154,7 +165,8 @@ assert cardbase.report(1)["previews"] == 1
 first = st["card_ref"]
 for _ in range(5):
     B.occ_pc_next(call("occ:pc:next"))
-assert len(set(st["card_seen"])) == 6 and st["card_ref"] != first
+n_active = len(cardbase.active_ids("birthday"))   # без реквизита вариантов ровно столько, сколько чистых фонов
+assert len(set(st["card_seen"])) == min(6, n_active) and (n_active < 6 or st["card_ref"] != first)
 assert len(kinds("edit_message_media")) == 5
 assert cardbase.report(1)["pc_next"] == 5
 
@@ -184,7 +196,7 @@ rep = cardbase.report(1)
 assert rep["buy"] == 1 and rep["paid"] == 1 and rep["conversion"] == 100.0, rep
 later = []
 _n = len(cardbase.active_ids("birthday"))
-for _ in range(_n * (1 + cardbase.VARIANTS)):
+for _ in range(_n):   # без реквизита вариантов ровно по числу чистых фонов
     later.append(cardbase.pick_ref(500, "birthday", later))
 assert later[-1] == ref and ref not in later[:-1], "оплаченная картинка — последняя в очереди"
 
