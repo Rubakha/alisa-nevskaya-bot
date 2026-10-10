@@ -141,3 +141,106 @@ python bot_best.py          # polling + Flask на порту STATS_PORT (по �
 Голосовое письмо, письмо группой, набор «3 письма», PDF, поддержка, атрибуция по `startParam`, подписки на праздники;
 веб-хук оплаты вместо опроса (сейчас бот опрашивает ЮKassa каждые 15 с и фронтенд вызывает `pay/check`);
 оплата Telegram-счётом из приложения; общий лимит запросов хранится в памяти процесса (одна реплика на Amvera — достаточно).
+
+## 7. v2: контракт (черновик для интерфейса, 10.10.2026)
+
+Закрывает строки инвентаря №19 (подписки), №23 (голос), №24 (письмо группой), №25 (набор «3 письма»), №26 (PDF), №31 (поддержка).
+Все ручки — тот же `/api/v1`, тот же `X-Telegram-Init-Data`, тот же формат ошибок `{"error":{"code","message"}}` (+`retryAfter` при 429),
+тот же лимит 30 запросов в минуту на человека. Включаются флагом `MINIAPP_API_V2` (по умолчанию `1`, если включён `MINIAPP_API`;
+`MINIAPP_API_V2=0` — новых ручек нет, v1 работает как раньше). Цены на сервере (клиент их не присылает); тестерам (`isTester`) всё 0 ₽ с `test:true`,
+как в 2.1/2.2. Картинки, аудио и файлы отдаются по подписанным ссылкам (`?exp=&sig=`, час жизни), заголовок для них не нужен.
+Все платежи — те же: `paymentUrl` ЮKassa → возврат `…/?paid=<id>` → опрос `check`. Текст ошибок на русском, секретов в ответах нет.
+
+### 7.1. Голосовое письмо (+100 ₽, ElevenLabs)
+
+Два пути, как в боте: **до оплаты** (переключатель на превью — озвучка входит в сумму) и **после оплаты** (доплата за уже выданное письмо).
+Голос Алисы (модель, подача, подложка −22 dB, сезонный зимний трек) не меняется — настройки те же, что в боте.
+
+- `GET /voice/options` (публичная) → `{"enabled":true,"price":100,"genders":[{"key":"f","label":"Женский голос"},{"key":"m","label":"Мужской голос"}],"music":true,"maxLetterChars":9000}`.
+  `enabled:false`, если нет ключа ElevenLabs или исчерпан лимит месяца/суток — тогда экран озвучки скрыть.
+- `PUT /orders/<id>/voice` `{"enabled":true,"gender":"f"}` — **до оплаты** (черновик с письмом, без начатой оплаты). Включает озвучку:
+  в `price` заказа (в ответе `GET /orders/<id>`) добавляется +100 ₽ (скидки считаются как у обычного письма), `voice:{enabled,gender,price}`.
+  `{"enabled":false}` — убрать. Ответ: `{"ok":true,"price":299,"voice":{"enabled":true,"gender":"f","price":100}}`.
+  Нельзя вместе с кредитом набора и с письмом группой (как в боте). После оплаты озвучка стартует сама.
+- `POST /orders/<id>/voice/pay` `{"gender":"f","email"?}` — **после оплаты** письма: создаёт доплату. Ответ как у `pay`: `{"paymentUrl":"…","price":100,"voiceOrderId":"ALI-…"}`;
+  тестер: `{"paid":true,"price":0,"realPrice":100,"test":true,"status":"queued"}`. Лимиты проверяются ДО создания платежа.
+- `POST /orders/<id>/voice/check` → `{"paid":true|false,"status":"awaiting_payment|queued|working|ready|failed"}` — опрос оплаты доплаты (то же, что «Я оплатил(а)»).
+- `GET /orders/<id>/voice` → состояние озвучки (опрос каждые 3–5 с, готово обычно за 30–90 с):
+  `{"available":true,"status":"none|awaiting_payment|queued|working|ready|failed","gender":"f","price":100,"chars":1840,"audioUrl":"…/voice.mp3?exp&sig","oggUrl":"…/voice.ogg?exp&sig","error":null,"updatedAt":"…"}`.
+  `audioUrl`/`oggUrl` только при `ready`; `failed` — деньги не возвращаем автоматически, владелец получает уведомление и повторяет вручную (`/voice_retry`);
+  человеку показать «Голос пока не записался, письмо и открытка на месте — пришлём вручную».
+  Готовое голосовое дублируется в чат бота (как сейчас) и привязывается к письму: получатель на странице конверта слышит его.
+- `GET /orders/<id>/voice.mp3`, `GET /orders/<id>/voice.ogg` — файлы (заголовок или подписанная ссылка), `404`, пока не `ready`.
+- Ошибки: `403 not_paid` (доплата до оплаты письма), `409 already_voiced`, `409 voice_in_progress`, `409 letter_too_long` (письмо длиннее 9000 знаков),
+  `503 voice_unavailable` (нет ключа/ffmpeg), `429 voice_cap` (лимит). Лимиты: суточный потолок символов `VOICE_DAILY_CAP` (по умолчанию 8000) и месячный
+  `VOICE_MONTHLY_CAP` (по умолчанию 15000) считаются по журналу `voice_usage.jsonl` вместе с символами заказа; тестерам — свой суточный `MINIAPP_TESTER_VOICE_CAP` (3000).
+  Если озвучка не поместится в остаток — отказ до оплаты, деньги не списываются.
+
+### 7.2. Письмо группой («от всех нас», 399 ₽)
+
+Та же логика, что в `group_letters.py`: организатор создаёт группу, зовёт до 12 участников, каждый отвечает на 2 вопроса и подписывается,
+организатор (минимум 2 части) собирает общее письмо и оплачивает как обычный заказ. Тексты участников видны только ИИ при сборке — друг другу и организатору не показываются (только подписи).
+
+- `GET /groups/options` (публичная) → `{"price":399,"maxParticipants":12,"minToBuild":2,"occasions":[{"key":"family","icon":"🌷","title":"…"}],"questions":[{"key":"memory","text":"Одно воспоминание о {name}…"},{"key":"thanks","text":"…"}]}`
+  (повод — из `GROUP_OCCASIONS`; в `text` подставлено `{name}` — имя получателя берётся из группы, см. `GET /groups/<code>`).
+- `POST /groups` `{"occasion":"family","name":"Мама","who":"наша мама","sign":"Твои дети"}` (каждое поле ≤60 знаков) →
+  `{"code":"aB3dE","status":"open","inviteUrl":"https://t.me/<бот>/app?startapp=grp_aB3dE","botUrl":"https://t.me/<бот>?start=grp_aB3dE","shareText":"💌 Собираем общее письмо для Мамы…","shareUrl":"https://t.me/share/url?…"}`.
+  Лимит: ≤5 открытых групп на человека. `inviteUrl` — ссылка Main Mini App: интерфейс получает `start_param=grp_<код>` и открывает экран участника.
+- `GET /groups` → мои группы `{"items":[{code,name,who,occasion,status:"open|built|ordered",participants:3,createdAt,orderId?}]}`.
+- `GET /groups/<code>` — для любого авторизованного, но состав ответа зависит от роли:
+  участнику (по ссылке) `{"code","name","who","organizerName","status","isOrganizer":false,"alreadyAnswered":false,"full":false,"questions":[…с подставленным именем…]}`;
+  организатору дополнительно `{"participants":[{"sign":"Аня","isMe":true,"at":"…"}],"count":3,"canBuild":true,"shareText","shareUrl","inviteUrl","orderId":null,"price":399}`.
+  Закрытая группа (`status != open`) участнику: `200` с `status` и без вопросов (экран «письмо уже собрано»); несуществующая — `404`.
+- `POST /groups/<code>/answers` `{"memory":"…","thanks":"…","sign":"Аня"}` (memory/thanks 10–800 знаков, sign ≤40) → `{"ok":true,"count":3}`;
+  повторная отправка заменяет прежний ответ этого человека. Организатор отвечает так же (его часть тоже входит). Ошибки: `409 group_closed`, `409 group_full`, `400 bad_answers`.
+  Организатору приходит сообщение в бота «✍️ <подпись> написал(а) свою часть. Уже: N.» (как сейчас).
+- `POST /groups/<code>/build` (только организатор, ≥2 части, группа `open`) — синхронно (до ~60 с) собирает письмо ИИ, лимиты генерации как у `preview`,
+  создаёт обычный черновик заказа повода группы с ценой 399 → `{"orderId":"ALI-…","status":"preview", …тот же ответ, что у POST /orders/<id>/preview (короткое letterPreview, hiddenParagraphs, cardRef, previewUrl)}`.
+  Дальше всё как для обычного заказа: `PUT …/card`, `POST …/preview` (перегенерация: 2 бесплатных + 1 пожелание, склеивает тех же участников), `POST …/pay` (399 ₽, промокод разрешён), `send`, `rate`.
+  Повторный `build` по той же группе возвращает тот же `orderId` (`409 already_built`, если заказ уже оплачен). `412 not_enough` — меньше двух частей.
+  Нельзя оплатить кредитом набора и добавить озвучку (как в боте).
+- `POST /groups/<code>/remind` → `{"text":"🤍 Напоминаю про общее письмо…","shareUrl":"…"}` — готовый текст-напоминание для отправки тем, кто не ответил.
+- `DELETE /groups/<code>` (организатор, пока не оплачено) → `{"ok":true}` — закрыть и скрыть группу.
+- Метрики: группы тестеров не учитываются (`is_test`).
+
+### 7.3. Набор «3 письма» (449 ₽) и кредиты
+
+- `GET /pack` (публичная; с initData добавляет `myCredits`) → `{"key":"pack3","title":"Набор: 3 письма с открыткой","price":449,"credits":3,"regularPrice":597,"savings":148,"myCredits":0}`.
+- `POST /pack/pay` `{"promo"?, "email"?}` → `{"orderId":"ALI-…","paymentUrl":"…","price":449}` (скидки как у обычного заказа; тестер: `{"paid":true,"price":0,"test":true,"credits":3}`).
+  Неоплаченный заказ ограничен одним (как `MAX_PENDING`): `409 pending_exists` + `orderId`.
+- `POST /purchases/<orderId>/check` → `{"paid":true,"kind":"pack","credits":3}` — общий опрос оплаты для набора и PDF; пока не оплачено `{"paid":false}`.
+- Списание: `POST /orders/<id>/pay` `{"useCredit":true}` — вместо платежа списывает 1 кредит: заказ выдаётся сразу →
+  `{"paid":true,"price":0,"credit":true,"creditsLeft":2}`. Ошибки: `409 no_credits`, `409 credit_not_allowed` (письмо группой / с озвучкой), `409 pending_exists`.
+  В `GET /orders/<id>` и `GET /me` есть `credits`/`creditsAvailable`; интерфейс показывает кнопку «Забрать по набору (осталось N)» рядом с «Оплатить».
+- `GET /me/purchases` → `{"items":[{orderId,kind:"pack|doc",title,price,status:"awaiting_payment|delivered",createdAt}]}`.
+
+### 7.4. PDF «Разговор с папой» (149 ₽)
+
+- `GET /doc` (публичная) → `{"key":"papa_pdf","title":"Разговор с папой (PDF)","price":149,"pages":10,"description":"30 фраз для пяти ситуаций…"}`.
+- `POST /doc/pay` `{"promo"?, "email"?}` → `{"orderId","paymentUrl","price":149}`; тестер: `{"paid":true,"price":0,"test":true,"orderId"}`.
+- Опрос — `POST /purchases/<orderId>/check` (см. выше) → `{"paid":true,"kind":"doc","downloadUrl":"…/doc/<orderId>/file.pdf?exp&sig"}`.
+- `GET /doc/<orderId>` → `{"status":"awaiting_payment|delivered","downloadUrl"?}`; `GET /doc/<orderId>/file.pdf` — файл (`application/pdf`, заголовок или подпись), до оплаты `404`.
+  После оплаты файл также уходит в чат бота (как сейчас). Ссылка на скачивание живёт час, новую выдаёт `GET /doc/<orderId>`.
+
+### 7.5. Поддержка
+
+- `POST /support` `{"topic":"payment|letter|app|other","text":"…"}` (text 5–1000 знаков) → `{"ticketId":"T-…","status":"sent"}`.
+  Сообщение уходит админу в том же формате, что `sup:new` (имя, @ник, chat_id, текст, «Ответить: /reply …»), плюс тема, номер заказа не нужен.
+  Лимит: 3 обращения в час и 10 в сутки на человека (`429 rate_limited`). Ответ владельца (`/reply`) приходит клиенту в чат бота и отмечается в `GET /me/support`.
+- `GET /me/support` → `{"items":[{"ticketId","topic","text","status":"sent|answered","createdAt","reply":null,"repliedAt":null}]}` — последние 20.
+  `reply` — текст ответа (после `/reply`). Интерфейс показывает «Ответ придёт сюда и в чат с ботом».
+
+### 7.6. Подписки и рассылка
+
+- `GET /me/subscriptions` → `{"holidays":[{"key":"mother","icon":"🤍","title":"День матери","next":"2026-11-29","subscribed":false}],"mailing":true,"reminderDates":2}`
+  (праздники — из `calendar_reminders.HOLIDAYS`; `reminderDates` — сколько личных дат сохранено, управляются через `/me/reminders`).
+- `PUT /me/subscriptions` `{"holidays":["mother","newyear"],"mailing":false}` — любое из полей необязательно; `holidays` — полный список подписок (неизвестные ключи игнорируются),
+  `mailing:false` — не получать общие рассылки владельца (в рассылке такие клиенты пропускаются, напоминания о датах и письма по заказам приходят как обычно).
+  Ответ — то же, что `GET`.
+
+### 7.7. Прочее
+
+- `GET /me` дополнен: `credits`, `mailing`, `voiceAvailable`; `GET /orders/<id>` — `voice` (состояние озвучки или `null`), `creditsAvailable`.
+- Статусы заказа не меняются (`draft → preview → awaiting_payment → delivered`); у покупок набор/PDF — `awaiting_payment → delivered`.
+- Новые коды ошибок: `voice_unavailable`, `voice_cap`, `voice_in_progress`, `already_voiced`, `letter_too_long`, `group_closed`, `group_full`, `not_enough`, `already_built`, `no_credits`, `credit_not_allowed`.
+- Откат: `MINIAPP_API_V2=0` скрывает все ручки раздела 7; данные (группы, обращения, покупки) остаются в хранилище.
