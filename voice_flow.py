@@ -5,6 +5,7 @@
 """
 import io
 import logging
+import os
 import threading
 import types as pytypes
 
@@ -259,6 +260,16 @@ def deliver(chat_id, order_id, force=False):
         return False
 
     VL.log_usage(B.DATA_DIR, order_id, res["chars"], gender)
+    try:   # копия для приложения (Mini App): mp3 и ogg по номеру письма
+        vdir = os.path.join(B.DATA_DIR, "voice")
+        os.makedirs(vdir, exist_ok=True)
+        target_id = _target(order)["order_id"]
+        for ext, data in (("mp3", res["mp3"]), ("ogg", res["ogg"])):
+            if data:
+                with open(os.path.join(vdir, f"{target_id}.{ext}"), "wb") as f:
+                    f.write(data)
+    except OSError as exc:
+        log.error("voice copy for app %s: %s", order_id, exc)
     order["voice_chars"] = res["chars"]
     order["voice_music"] = res["music"]
     who = (order.get("gift_for") or "").strip()

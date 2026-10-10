@@ -263,6 +263,151 @@ assert call("post", f"/purchases/{pend}/cancel", user=777).status_code == 404
 assert j(call("post", f"/purchases/{pend}/cancel", user=502)) == {"ok": True} and B.get_order(pend)["status"] == "cancelled"
 assert call("post", "/doc/pay", user=502, data={}).status_code == 200, "после отмены можно купить другое"
 
+# ═══ Блок 3: голосовое письмо ═══
+import io as _io  # noqa: E402
+
+VLM = B.voice_flow.VL
+B.voice_flow.ASYNC = False
+MAKES = []
+
+
+def fake_make(text, gender="f", seed=""):
+    MAKES.append((gender, seed))
+    return {"ogg": b"OggS-voice", "mp3": b"ID3-voice", "chars": 1200, "music": True}
+
+
+VLM.make = fake_make
+os.environ["ELEVENLABS_API_KEY"] = "k"
+os.environ["ELEVENLABS_VOICE_ID_F"] = "vf"
+os.environ["ELEVENLABS_VOICE_ID_M"] = "vm"
+os.environ["VOICE_UPSELL_PRICE"] = "100"
+
+vo = j(call("get", "/voice/options", user=None))
+assert vo == {"enabled": True, "price": 100, "genders": [{"key": "f", "label": "Женский голос"},
+                                                          {"key": "m", "label": "Мужской голос"}],
+              "music": True, "maxLetterChars": 9000}, vo
+
+# до оплаты: переключатель добавляет +100 ₽ в сумму
+v_oid = j(call("post", "/orders", user=510, data={"product": "birthday", "answers": ANSWERS}))["orderId"]
+assert call("put", f"/orders/{v_oid}/voice", user=510, data={"enabled": True, "gender": "f"}).status_code == 409, "без письма нельзя"
+call("post", f"/orders/{v_oid}/preview", user=510)
+assert call("put", f"/orders/{v_oid}/voice", user=510, data={"enabled": True, "gender": "x"}).status_code == 400
+assert call("put", f"/orders/{v_oid}/voice", user=510, data={"enabled": "да"}).status_code == 400
+assert call("put", f"/orders/{v_oid}/voice", user=777, data={"enabled": True, "gender": "f"}).status_code == 404
+r = j(call("put", f"/orders/{v_oid}/voice", user=510, data={"enabled": True, "gender": "f"}))
+assert r == {"ok": True, "price": 299, "voice": {"enabled": True, "gender": "f", "price": 100}}, r
+st = j(call("get", f"/orders/{v_oid}", user=510))
+assert st["price"] == 299 and st["voice"]["gender"] == "f" and st["creditsAvailable"] == 0, st
+assert j(call("put", f"/orders/{v_oid}/voice", user=510, data={"enabled": False}))["price"] == 199
+assert j(call("get", f"/orders/{v_oid}", user=510))["voice"] is None
+call("put", f"/orders/{v_oid}/voice", user=510, data={"enabled": True, "gender": "m"})
+assert j(call("get", f"/orders/{v_oid}/voice", user=510))["selected"] is True
+r = call("post", f"/orders/{v_oid}/pay", user=510, data={"promo": "TEST20"})
+assert j(r)["price"] == 239, j(r)   # (199 + 100) − 20%
+vo_order = B.get_order(v_oid)
+assert vo_order["voice"] is True and vo_order["voice_gender"] == "m" and vo_order["price_rub"] == 239
+assert call("put", f"/orders/{v_oid}/voice", user=510, data={"enabled": False}).status_code == 409, "оплата начата"
+assert j(call("get", f"/orders/{v_oid}/voice", user=510))["selected"] is True
+n = len(MAKES)
+mark_paid(v_oid)
+st = j(call("post", f"/orders/{v_oid}/pay/check", user=510))
+assert st["paid"] is True
+assert len(MAKES) == n + 1 and MAKES[-1][0] == "m", "озвучка стартовала сама после оплаты"
+vs = j(call("get", f"/orders/{v_oid}/voice", user=510))
+assert vs["status"] == "ready" and vs["gender"] == "m" and vs["chars"] == 1200 and vs["price"] == 100, vs
+assert vs["audioUrl"] and vs["oggUrl"] and vs["error"] is None
+assert client.get(vs["audioUrl"].replace(B.site_pages.SITE_URL, "")).data == b"ID3-voice"
+assert client.get(vs["oggUrl"].replace(B.site_pages.SITE_URL, "")).data == b"OggS-voice"
+assert client.get(vs["audioUrl"].replace(B.site_pages.SITE_URL, "").replace("sig=", "sig=0")).status_code == 401
+assert call("get", f"/orders/{v_oid}/voice.mp3", user=510).mimetype == "audio/mpeg"
+assert call("get", f"/orders/{v_oid}/voice.mp3", user=777).status_code == 404
+assert any(s[0] == "send_voice" for s in SENT), "голосовое ещё и в чате бота, как раньше"
+assert j(call("get", f"/orders/{v_oid}", user=510))["voice"] == {"status": "ready", "gender": "m"}
+r = call("post", f"/orders/{v_oid}/voice/pay", user=510, data={"gender": "f"})
+assert r.status_code == 409 and j(r)["error"]["code"] == "already_voiced"
+
+# после оплаты: доплата +100 ₽
+p_oid = j(call("post", "/orders", user=511, data={"product": "birthday", "answers": ANSWERS}))["orderId"]
+assert call("post", f"/orders/{p_oid}/voice/pay", user=511, data={"gender": "f"}).status_code in (403, 409), "до оплаты письма нельзя"
+call("post", f"/orders/{p_oid}/preview", user=511)
+assert call("post", f"/orders/{p_oid}/voice/pay", user=511, data={"gender": "f"}).status_code == 403
+call("post", f"/orders/{p_oid}/pay", user=511, data={})
+mark_paid(p_oid)
+call("post", f"/orders/{p_oid}/pay/check", user=511)
+assert j(call("get", f"/orders/{p_oid}/voice", user=511))["status"] == "none"
+assert call("post", f"/orders/{p_oid}/voice/pay", user=511, data={"gender": "z"}).status_code == 400
+n = len(MAKES)
+r = call("post", f"/orders/{p_oid}/voice/pay", user=511, data={"gender": "m"})
+vp = j(r)
+assert r.status_code == 200 and vp["price"] == 100 and vp["paymentUrl"] and vp["voiceOrderId"].startswith("ALI-"), vp
+addon = B.get_order(vp["voiceOrderId"])
+assert addon["product"] == "voice_addon" and addon["voice_for"] == p_oid and addon["price_rub"] == 100
+assert j(call("get", f"/orders/{p_oid}/voice", user=511))["status"] == "awaiting_payment"
+assert j(call("post", f"/orders/{p_oid}/voice/pay", user=511, data={"gender": "m"}))["voiceOrderId"] == vp["voiceOrderId"], "тот же заказ"
+assert j(call("post", f"/orders/{p_oid}/voice/check", user=511)) == {"paid": False, "status": "awaiting_payment"}
+mark_paid(vp["voiceOrderId"])
+assert j(call("post", f"/orders/{p_oid}/voice/check", user=511)) == {"paid": True, "status": "ready"}
+assert len(MAKES) == n + 1 and B.get_order(p_oid)["voice_addon_order"] == vp["voiceOrderId"]
+vs = j(call("get", f"/orders/{p_oid}/voice", user=511))
+assert vs["status"] == "ready" and client.get(vs["audioUrl"].replace(B.site_pages.SITE_URL, "")).data == b"ID3-voice"
+assert j(call("get", f"/orders/{p_oid}", user=511))["voice"]["status"] == "ready"
+
+# лимиты символов (сутки и месяц) и недоступность — отказ ДО оплаты, деньги не берём
+c_oid = j(call("post", "/orders", user=512, data={"product": "birthday", "answers": ANSWERS}))["orderId"]
+call("post", f"/orders/{c_oid}/preview", user=512)
+os.environ["VOICE_DAILY_CAP"] = "1"
+assert j(call("get", "/voice/options", user=None))["enabled"] is False
+r = call("put", f"/orders/{c_oid}/voice", user=512, data={"enabled": True, "gender": "f"})
+assert r.status_code == 429 and j(r)["error"]["code"] == "voice_cap" and j(r)["retryAfter"] > 0
+assert not j(call("get", f"/orders/{c_oid}", user=512))["voice"]
+os.environ.pop("VOICE_DAILY_CAP")
+os.environ["VOICE_MONTHLY_CAP"] = "1000"   # в журнале уже 2400 знаков за месяц
+r = call("put", f"/orders/{c_oid}/voice", user=512, data={"enabled": True, "gender": "f"})
+assert r.status_code == 429 and j(r)["error"]["code"] == "voice_cap"
+os.environ.pop("VOICE_MONTHLY_CAP")
+os.environ["ELEVENLABS_API_KEY"] = ""
+assert j(call("get", "/voice/options", user=None))["enabled"] is False
+r = call("put", f"/orders/{c_oid}/voice", user=512, data={"enabled": True, "gender": "f"})
+assert r.status_code == 503 and j(r)["error"]["code"] == "voice_unavailable"
+os.environ["ELEVENLABS_API_KEY"] = "k"
+long_order = {**B.get_order(p_oid), "order_id": "ALI-9100000001", "chat_id": 513, "letter_text": "Слово. " * 2000,
+              "voice_addon_order": None, "voice": False, "voice_status": None}
+long_order.pop("gift_code", None)
+B.save_order(long_order)
+r = call("post", "/orders/ALI-9100000001/voice/pay", user=513, data={"gender": "f"})
+assert r.status_code == 409 and j(r)["error"]["code"] == "letter_too_long"
+
+# тестер: озвучка бесплатно, свой суточный потолок
+t_oid = j(call("post", "/orders", user=999, data={"product": "birthday", "answers": ANSWERS}))["orderId"]
+call("post", f"/orders/{t_oid}/preview", user=999)
+call("post", f"/orders/{t_oid}/pay", user=999, data={})
+r = call("post", f"/orders/{t_oid}/voice/pay", user=999, data={"gender": "f"})
+tv = j(r)
+assert r.status_code == 200 and tv["paid"] and tv["test"] and tv["price"] == 0 and tv["realPrice"] == 100 and tv["status"] == "queued", tv
+assert j(call("get", f"/orders/{t_oid}/voice", user=999))["status"] == "ready"
+assert B.get_order(tv["voiceOrderId"])["is_test"] is True
+t2 = j(call("post", "/orders", user=999, data={"product": "birthday", "answers": ANSWERS}))["orderId"]
+call("post", f"/orders/{t2}/preview", user=999)
+call("post", f"/orders/{t2}/pay", user=999, data={})
+os.environ["MINIAPP_TESTER_VOICE_CAP"] = "1"
+r = call("post", f"/orders/{t2}/voice/pay", user=999, data={"gender": "f"})
+assert r.status_code == 429 and j(r)["error"]["code"] == "voice_cap"
+os.environ.pop("MINIAPP_TESTER_VOICE_CAP")
+
+# сбой озвучки: статус failed, письмо и открытка на месте
+def failing_make(text, gender="f", seed=""):
+    raise RuntimeError("ElevenLabs down")
+
+
+VLM.make = failing_make
+r = call("post", f"/orders/{t2}/voice/pay", user=999, data={"gender": "m"})
+assert r.status_code == 200
+fs = j(call("get", f"/orders/{t2}/voice", user=999))
+assert fs["status"] == "failed" and "вручную" in fs["error"] and fs["audioUrl"] is None, fs
+assert call("get", f"/orders/{t2}/voice.mp3", user=999).status_code == 404
+assert j(call("get", f"/orders/{t2}", user=999))["status"] == "delivered"
+VLM.make = fake_make
+
 # откат флагом
 os.environ["MINIAPP_API_V2"] = "0"
 from flask import Flask  # noqa: E402

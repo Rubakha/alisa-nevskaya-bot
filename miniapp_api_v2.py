@@ -296,3 +296,160 @@ def routes_purchases():
                               "price": st["price"], "status": st["status"], "createdAt": o.get("created_at"),
                               "test": st["test"]})
         return {"items": items}
+
+
+# ── голосовое письмо (+100 ₽, ElevenLabs) ───────────────────────────
+def voice_genders():
+    VL = A.VL()
+    return [{"key": g, "label": "Женский голос" if g == "f" else "Мужской голос"} for g in VL.genders()]
+
+
+def pick_gender(requested):
+    VL = A.VL()
+    genders = VL.genders()
+    if requested in genders:
+        return requested
+    if not requested and len(genders) == 1:
+        return genders[0]
+    raise A.err("bad_gender", "Выбери голос: женский или мужской.", 400)
+
+
+def voice_response(order):
+    """Полное состояние озвучки письма для GET /orders/<id>/voice."""
+    VL = A.VL()
+    info = A.voice_info(order)
+    oid = order["order_id"]
+    out = {"available": VL.enabled() and A.voice_cap_left(order["chat_id"]) > 0, "status": info["status"],
+           "gender": info["gender"], "price": VL.upsell_price(), "chars": info["chars"], "audioUrl": None,
+           "oggUrl": None, "error": None, "updatedAt": info.get("updatedAt")}
+    if info["status"] == "ready":
+        if os.path.exists(A.voice_file(oid, "mp3")):
+            out["audioUrl"] = A.signed(oid, f"/orders/{oid}/voice.mp3")
+        if os.path.exists(A.voice_file(oid, "ogg")):
+            out["oggUrl"] = A.signed(oid, f"/orders/{oid}/voice.ogg")
+    if info["status"] == "failed":
+        out["error"] = ("Голос пока не записался. Письмо и открытка на месте — пришлём голосовое вручную "
+                        "в ближайшее время.")
+    return out
+
+
+def routes_voice():
+    @A.endpoint("/voice/options", auth=False)
+    def voice_options():
+        VL = A.VL()
+        user = A.current_user(required=False)
+        ok = VL.enabled() and VL.upsell_price() > 0 and A.voice_cap_left(user["id"] if user else None) > 0
+        return {"enabled": bool(ok), "price": VL.upsell_price(), "genders": voice_genders() if ok else [],
+                "music": True, "maxLetterChars": VL.MAX_TOTAL}
+
+    @A.endpoint("/orders/<order_id>/voice", methods=("PUT",))
+    def voice_toggle(order_id, user):
+        """До оплаты: включить или убрать озвучку (+100 ₽ к сумме)."""
+        d = A.own_draft(order_id, user)
+        if d.get("synthetic") or d.get("group"):
+            raise A.err("voice_not_allowed", "Для этого письма озвучку до оплаты добавить нельзя.", 409)
+        order = A.real_order(d)
+        if order and order.get("status") == "done":
+            raise A.err("paid", "Письмо уже оплачено — озвучку можно добавить отдельной доплатой.", 409)
+        if not d.get("letter"):
+            raise A.err("no_letter", "Сначала получи письмо.", 409)
+        if order and order.get("status") == "pending" and order.get("yk_payment_id"):
+            raise A.err("locked", "Оплата уже начата. Заверши её или отмени заказ.", 409)
+        data = A.body()
+        if data.get("enabled") is False:
+            d.pop("voice", None)
+            d.pop("voice_gender", None)
+        elif data.get("enabled") is True:
+            A.check_voice_allowed(user["id"], d["letter"])
+            d["voice"], d["voice_gender"] = True, pick_gender(data.get("gender"))
+        else:
+            raise A.err("bad_request", "enabled — true или false.", 400)
+        A.save_draft(d)
+        q = A.quote(d)
+        return {"ok": True, "price": q["payable"], "voice": A.voice_summary(d, None)}
+
+    @A.endpoint("/orders/<order_id>/voice/pay", methods=("POST",))
+    def voice_pay(order_id, user):
+        """После оплаты письма: доплата за озвучку (как «Озвучить голосом» в боте)."""
+        VL = A.VL()
+        d = A.own_draft(order_id, user)
+        order = A.real_order(d)
+        if not order or order.get("status") != "done":
+            raise A.err("not_paid", "Озвучить можно оплаченное письмо.", 403)
+        info = A.voice_info(order)
+        if info["status"] in ("queued", "working", "ready"):
+            raise A.err("already_voiced" if info["status"] == "ready" else "voice_in_progress",
+                        "Это письмо уже озвучено." if info["status"] == "ready" else "Голос уже записывается.", 409)
+        data = A.body()
+        A.check_voice_allowed(user["id"], order.get("letter_text"))
+        gender = pick_gender(data.get("gender"))
+        addon = A.pending_voice_order(order)
+        if addon is None:
+            others = [o for o in B.pending_orders(user["id"])]
+            if others:
+                raise A.err("pending_exists", "У тебя есть неоплаченный заказ — оплати или отмени его.", 409,
+                            orderId=others[0]["order_id"])
+            profile = B.upsert_client(A.tg_user(user))
+            addon = {"order_id": B.new_order_id(), "chat_id": user["id"], "name": profile["name"],
+                     "username": profile.get("username", ""), "pain": order.get("product"), "product": VL.ADDON_KEY,
+                     "answers": [], "letter_text": order.get("letter_text", ""), "gift_for": order.get("gift_for"),
+                     "is_gift": order.get("is_gift", False), "voice": True, "voice_gender": gender,
+                     "voice_for": order["order_id"], "price_rub": VL.upsell_price(), "status": "pending",
+                     "created_at": B.now_msk().isoformat(), "paid_at": None, "delivered_at": None, "email": None,
+                     "rating": None}
+            B.save_order(addon)
+        elif addon.get("voice_gender") != gender:
+            addon["voice_gender"] = gender
+            B.save_order(addon)
+        res = A.checkout(user, addon, data)
+        res["voiceOrderId"] = res.pop("orderId", addon["order_id"])
+        if res.get("paid"):
+            res["status"] = "queued"
+        return res
+
+    @A.endpoint("/orders/<order_id>/voice/check", methods=("POST",))
+    def voice_check(order_id, user):
+        d = A.own_draft(order_id, user)
+        order = A.real_order(d)
+        if not order or order.get("status") != "done":
+            raise A.err("not_paid", "Озвучить можно оплаченное письмо.", 403)
+        addon = A.pending_voice_order(order)
+        if addon:
+            try:
+                B.yk_check_order(addon["order_id"])
+            except Exception as exc:
+                B.log.error("miniapp voice check %s: %s", order_id, exc)
+            order = B.get_order(order_id)
+        info = A.voice_info(order)
+        return {"paid": info["status"] not in ("none", "awaiting_payment"), "status": info["status"]}
+
+    @A.endpoint("/orders/<order_id>/voice")
+    def voice_state(order_id, user):
+        d = A.own_draft(order_id, user)
+        order = A.real_order(d)
+        if order and order.get("status") == "done":
+            return voice_response(order)
+        VL = A.VL()
+        return {"available": VL.enabled(), "status": "none", "gender": d.get("voice_gender"), "price": VL.upsell_price(),
+                "chars": None, "audioUrl": None, "oggUrl": None, "error": None,
+                "selected": bool(d.get("voice"))}
+
+    def audio(order_id, user, ext, mimetype):
+        d = A.find_draft(order_id)
+        order = A.real_order(d) if d else None
+        path = A.voice_file(order_id, ext)
+        if (not order or order.get("status") != "done" or (user and d.get("chat_id") != user["id"])
+                or A.voice_info(order)["status"] != "ready" or not os.path.exists(path)):
+            raise A.err("not_found", "Голос ещё не готов.", 404)
+        with open(path, "rb") as f:
+            data = f.read()
+        return A.Response(data, 200, mimetype=mimetype, headers={"Cache-Control": "private, max-age=300",
+                          "Content-Disposition": f'inline; filename="Pismo_ot_Alisy.{ext}"'})
+
+    @A.endpoint("/orders/<order_id>/voice.mp3", auth="sig")
+    def voice_mp3(order_id, user):
+        return audio(order_id, user, "mp3", "audio/mpeg")
+
+    @A.endpoint("/orders/<order_id>/voice.ogg", auth="sig")
+    def voice_ogg(order_id, user):
+        return audio(order_id, user, "ogg", "audio/ogg")

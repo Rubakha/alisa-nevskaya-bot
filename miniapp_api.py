@@ -368,9 +368,142 @@ def status_of(d, order):
     return "preview" if d.get("letter") else "draft"
 
 
+def VL():
+    return B.voice_flow.VL
+
+
+def base_price(d):
+    """Цена до скидок: письмо (у группового — своя) и озвучка, если клиент включил её до оплаты."""
+    base = d.get("price") or B.OCC.PRODUCTS[d["product"]]["price"]
+    if d.get("voice") and not d.get("synthetic"):
+        base += VL().upsell_price()
+    return base
+
+
 def quote(d, promo=None):
-    p = B.OCC.PRODUCTS[d["product"]]
-    return B.partners.quote(d["chat_id"], p["price"], promo if promo is not None else d.get("promo"))
+    return B.partners.quote(d["chat_id"], base_price(d), promo if promo is not None else d.get("promo"))
+
+
+# ── озвучка: состояние, файлы, лимиты символов ───────────────────
+def voice_dir():
+    d = os.path.join(B.DATA_DIR, "voice")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def voice_file(order_id, ext):
+    return os.path.join(voice_dir(), f"{order_id}.{ext}")
+
+
+def pending_voice_order(order):
+    """Неоплаченная доплата за озвучку этого письма."""
+    for o in B.client_orders(order["chat_id"]):
+        if (o.get("product") == VL().ADDON_KEY and o.get("voice_for") == order["order_id"]
+                and o.get("status") == "pending"):
+            return o
+    return None
+
+
+def voice_info(order):
+    """Озвучка выданного письма: none | awaiting_payment | queued | working | ready | failed."""
+    addon = B.get_order(order["voice_addon_order"]) if order.get("voice_addon_order") else None
+    src = order if order.get("voice") else addon
+    out = {"status": "none", "gender": None, "chars": None, "error": None}
+    if src is None:
+        if pending_voice_order(order):
+            out.update(status="awaiting_payment", gender=pending_voice_order(order).get("voice_gender"))
+        return out
+    out["gender"] = src.get("voice_gender")
+    out["chars"] = src.get("voice_chars")
+    vs = src.get("voice_status")
+    out["status"] = {"working": "working", "done": "ready", "failed": "failed"}.get(vs, "queued")
+    if vs == "failed":
+        out["error"] = "voice_failed"
+    out["updatedAt"] = src.get("voice_delivered_at") or src.get("paid_at")
+    return out
+
+
+def voice_summary(d, order):
+    """Поле voice в состоянии заказа: что выбрано до оплаты или как идёт озвучка после."""
+    if not VL().enabled():
+        return None
+    if order and order.get("status") == "done":
+        info = voice_info(order)
+        return None if info["status"] == "none" else {k: info[k] for k in ("status", "gender")}
+    if d.get("voice"):
+        return {"enabled": True, "gender": d.get("voice_gender"), "price": VL().upsell_price()}
+    return None
+
+
+def voice_estimate(text):
+    return len(VL().clean_text(text or ""))
+
+
+def voice_usage(prefix, chat_id=None):
+    """Символы озвучки по журналу voice_usage.jsonl за период (префикс даты: 2026-10-10 или 2026-10); chat_id — только человека."""
+    total = 0
+    try:
+        with open(os.path.join(B.DATA_DIR, "voice_usage.jsonl"), encoding="utf-8") as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    continue
+                if not str(r.get("at", "")).startswith(prefix):
+                    continue
+                if chat_id is not None:
+                    o = B.get_order(r.get("order_id", "")) or {}
+                    if o.get("chat_id") != chat_id:
+                        continue
+                total += int(r.get("chars") or 0)
+    except OSError:
+        pass
+    return total
+
+
+def voice_reserved():
+    """Символы оплаченных, но ещё не озвученных писем (они уйдут в журнал позже)."""
+    total = 0
+    for o in B.all_orders(include_test=True):
+        if o.get("status") != "done" or o.get("voice_status") in ("done", "failed", "working"):
+            continue
+        if o.get("voice") or o.get("product") == VL().ADDON_KEY:
+            total += voice_estimate(o.get("letter_text"))
+    return total
+
+
+def tester_voice_cap():
+    try:
+        return int(os.getenv("MINIAPP_TESTER_VOICE_CAP", "3000"))
+    except ValueError:
+        return 3000
+
+
+def voice_cap_left(chat_id=None):
+    """Сколько знаков ещё можно озвучить: суточный и месячный потолки (VOICE_DAILY_CAP, VOICE_MONTHLY_CAP) и свой суточный у тестера."""
+    try:
+        daily = int(os.getenv("VOICE_DAILY_CAP", "8000"))
+        monthly = int(os.getenv("VOICE_MONTHLY_CAP", "15000"))
+    except ValueError:
+        daily, monthly = 8000, 15000
+    now = B.now_msk()
+    left = min(daily - voice_usage(now.strftime("%Y-%m-%d")), monthly - voice_usage(now.strftime("%Y-%m"))) \
+        - voice_reserved()
+    if chat_id is not None and B.is_test_user(chat_id):
+        left = min(left, tester_voice_cap() - voice_usage(now.strftime("%Y-%m-%d"), chat_id))
+    return max(0, left)
+
+
+def check_voice_allowed(chat_id, letter):
+    """Проверки до приёма денег и до включения озвучки. Бросает ApiError."""
+    if not VL().enabled() or VL().upsell_price() <= 0:
+        raise err("voice_unavailable", "Озвучка сейчас недоступна — письмо можно получить текстом.", 503)
+    need = voice_estimate(letter)
+    if need > VL().MAX_TOTAL:
+        raise err("letter_too_long", "Письмо слишком длинное для озвучки.", 409)
+    if need > voice_cap_left(chat_id):
+        raise err("voice_cap", "На сегодня озвучка закончилась — загляни завтра или получи письмо текстом.", 429,
+                  retryAfter=3600)
 
 
 def title_line(d):
@@ -490,7 +623,7 @@ def present(d):
         "giftFor": d.get("name"), "sign": d.get("sign"), "tone": d.get("tone"),
         "price": ((order.get("test_price_rub") if order.get("is_test") else order["price_rub"]) if done else q["payable"]),
         "test": bool(order and order.get("is_test")),
-        "basePrice": B.OCC.PRODUCTS[d["product"]]["price"],
+        "basePrice": B.OCC.PRODUCTS[d["product"]]["price"], "voice": voice_summary(d, order),
         "discount": ({"rub": q["discount"], "label": q["label"], "balanceUsed": q["balance_used"]} if q and
                      (q["discount"] or q["balance_used"]) else None),
         "cardRef": ref, "cardTitle": title_line(d)[0], "cardLine": title_line(d)[1],
@@ -926,7 +1059,7 @@ def routes():
             ok, res = B.partners.apply_promo_code(user["id"], promo)   # как «Есть промокод» в боте (и привязка партнёра)
             if not ok:
                 raise err("bad_promo", res, 400)
-        sig_now = [d["letter"], promo]
+        sig_now = [d["letter"], promo, bool(d.get("voice")), d.get("voice_gender")]
         if order and order.get("status") == "pending" and (d.get("synthetic") or d.get("order_sig") == sig_now):
             pass   # повторное «Оплатить» или заказ, созданный в боте, — тот же заказ
         else:
@@ -938,7 +1071,7 @@ def routes():
                 raise err("locked", "Оплата уже начата. Заверши её или отмени заказ.", 409)
             d["promo"] = promo
             order = B.occ_make_order(user["id"], tg_user(user), {**d, "qa": [tuple(x) for x in d["qa"]],
-                                                                 "promo": promo})
+                                                                 "promo": promo, "price": base_price(d)})
             d["order_sig"] = sig_now
             if d.get("source"):
                 order["source"] = d["source"]   # отчёт /sources считает заказы по этой метке
