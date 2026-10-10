@@ -2157,7 +2157,7 @@ def occ_make_order(chat_id, user, state, status="pending", price=None):
     p = OCC.PRODUCTS[key]
     profile = upsert_client(user)
     order = {
-        "order_id": new_order_id(),
+        "order_id": state.get("api_order_id") or new_order_id(),  # заказ из Mini App сохраняет номер черновика
         "chat_id": chat_id,
         "name": profile["name"],
         "username": profile.get("username", ""),
@@ -4049,6 +4049,8 @@ import site_pages  # noqa: E402  сайт «Письма Алисы» на то�
 site_pages.register(app, DATA_DIR)
 import miniapp_share  # noqa: E402  отправка в один тап через мини-приложение Telegram
 miniapp_share.register(app, sys.modules[__name__])
+import miniapp_api  # noqa: E402  API v1 для Mini App (включается MINIAPP_API=1)
+miniapp_api.register(app, sys.modules[__name__])
 
 
 # Ключ для /stats выводится из токена бота: локальный отчёт считает его так же,

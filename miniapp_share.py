@@ -25,6 +25,12 @@ MAX_AGE = 24 * 3600
 
 def validate_init_data(init_data, token, now=None, max_age=MAX_AGE):
     """Проверяет подпись Telegram Web App. Возвращает id пользователя или None."""
+    user = init_data_user(init_data, token, now, max_age)
+    return user["id"] if user else None
+
+
+def init_data_user(init_data, token, now=None, max_age=MAX_AGE):
+    """Проверяет подпись Telegram Web App. Возвращает профиль пользователя из initData (dict с id) или None."""
     try:
         pairs = dict(urllib.parse.parse_qsl(init_data or "", keep_blank_values=True, strict_parsing=True))
     except ValueError:
@@ -40,7 +46,9 @@ def validate_init_data(init_data, token, now=None, max_age=MAX_AGE):
     try:
         if (now or time.time()) - int(pairs.get("auth_date", "0")) > max_age:
             return None
-        return int(json.loads(pairs.get("user", "{}"))["id"])
+        user = json.loads(pairs.get("user", "{}"))
+        user["id"] = int(user["id"])
+        return user
     except (ValueError, KeyError, TypeError):
         return None
 

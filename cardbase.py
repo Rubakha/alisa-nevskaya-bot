@@ -127,6 +127,12 @@ def pick_ref(chat_id, occasion, seen=()):
     return ranked[0]  # всё уже видели в этой сессии — идём по кругу
 
 
+def taken_refs(chat_id):
+    """Картинки, которые человек уже забрал (оплатил): в сетке выбора они идут последними."""
+    with closing(_connect()) as c:
+        return {r["card_ref"] for r in c.execute("SELECT card_ref FROM user_cards WHERE chat_id=?", (chat_id,))}
+
+
 def mark_taken(chat_id, card_ref):
     if not card_ref:
         return
