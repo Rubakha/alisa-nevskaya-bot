@@ -77,3 +77,40 @@ assert cardbase.active_ids("thanks") == ["thanks-p01"]
 assert cardbase.get_card("birthday-003")["status"] == "review"
 assert cardbase.refresh_if_changed(max_age=0) == 0, "без изменений повторно не синхронизируем"
 print("OK: card assets")
+
+# ── шрифты открытки: Playfair Display, Bad Script, Manrope ──
+import io  # noqa: E402
+from PIL import ImageDraw  # noqa: E402
+
+fonts_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "fonts")
+for name in ("BadScript-Regular.ttf", "Manrope-Variable.ttf", "PlayfairDisplay-Variable.ttf",
+             "PlayfairDisplay-Italic-Variable.ttf", "OFL-badscript.txt", "OFL-manrope.txt", "OFL-playfairdisplay.txt"):
+    assert os.path.getsize(os.path.join(fonts_dir, name)) > 1000, f"нет файла шрифта или лицензии: {name}"
+assert set(PC.FONT_FILES) == {"PlayfairDisplay-Variable.ttf", "PlayfairDisplay-Italic-Variable.ttf",
+                              "BadScript-Regular.ttf", "Manrope-Variable.ttf"}
+src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "postcards.py"), encoding="utf-8").read()
+assert "Caveat" not in src and "Cormorant" not in src and "Jost" not in src, "старые шрифты из кода убраны"
+# вес переменного шрифта применяется
+light, bold = PC._font(PC.PLAYFAIR, 60, 400), PC._font(PC.PLAYFAIR, 60, 900)
+probe = ImageDraw.Draw(Image.new("RGB", (10, 10)))
+assert probe.textlength("Папа", font=bold) > probe.textlength("Папа", font=light), "вес меняет начертание"
+assert PC._font(PC.SCRIPT, 40, 700).size == 40, "у шрифта без осей вариация молча игнорируется"
+# все нужные символы есть в шрифтах (ё, Ё, №, «», тире)
+for fname in (PC.PLAYFAIR, PC.SCRIPT, PC.MANROPE):
+    f = PC._font(fname, 40)
+    for ch in "ёЁ№«»—":
+        assert f.getmask(ch).getbbox(), (fname, ch)
+# длинные имена и «ё/№» не вылезают за поля и не ломают размер
+drw = ImageDraw.Draw(Image.new("RGB", (PC.W, PC.H)))
+max_w = PC.W - 2 * 110
+for title in ("Папа, это тебе", "Александра Петровна, с днём рождения вас", "Александра Петровна Ёлкина-Смирнова, спасибо"):
+    f, lines = PC._fit(drw, title, PC.PLAYFAIR, 600, 62, 40, max_w, 2)
+    assert 1 <= len(lines) <= 2 and all(drw.textlength(ln, font=f) <= max_w for ln in lines), title
+for line in ("Спасибо, что ты всегда рядом", "Вы научили меня главному: №1 — доброта, ёлки-палки, тёплые вечера и всё важное"):
+    f, lines = PC._fit(drw, line, PC.SCRIPT, None, 50, 34, max_w, 3)
+    assert 1 <= len(lines) <= 3 and all(drw.textlength(ln, font=f) <= max_w for ln in lines), line
+for occ, title, line, sign, pv in (("family", "Папа, это тебе", "Спасибо за всё, ёлки-палки", "твоя дочь", False),
+                                   ("family", "Александра Петровна, спасибо вам", "Урок №1: доброта", "Серёжа", True)):
+    img = Image.open(io.BytesIO(PC.render(occ, title, line, sign, preview=pv)))
+    assert img.size == (PC.W, PC.H)
+print("OK: card fonts")

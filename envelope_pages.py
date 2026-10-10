@@ -11,9 +11,9 @@ CSS = """
 :root{--cream:#f6f0e6;--ink:#3b2f2a;--wax:#8f2f2a;--wax2:#b9544c;--gold:#e9c98a}
 *{box-sizing:border-box}
 body{margin:0;min-height:100vh;background:radial-gradient(circle at 50% 0,#fbf6ec,#efe3d0 70%);color:var(--ink);
-font:18px/1.65 Georgia,'Times New Roman',serif;overflow-x:hidden}
+font:18px/1.65 'Manrope',system-ui,sans-serif;overflow-x:hidden}
 .w{max-width:620px;margin:0 auto;padding:28px 18px 56px;text-align:center;position:relative;z-index:2}
-h1{font-size:26px;line-height:1.3;margin:18px 0 6px;font-weight:600}
+h1{font-family:'Playfair Display',Georgia,serif;font-size:26px;line-height:1.3;margin:18px 0 6px;font-weight:600}
 .sub{color:#7a6a60;font-size:16px;margin:0 0 22px}
 .btn{display:inline-block;margin-top:22px;padding:15px 30px;background:var(--wax);color:#fff;border-radius:999px;
 text-decoration:none;font:600 17px/1 -apple-system,Segoe UI,sans-serif;box-shadow:0 8px 20px rgba(143,47,42,.35)}
@@ -31,7 +31,7 @@ linear-gradient(225deg,transparent 49%,rgba(120,80,40,.10) 50%) right/50% 100% n
 clip-path:polygon(0 0,100% 0,50% 100%);border-radius:10px 10px 0 0;transform-origin:top}
 .seal{position:absolute;left:50%;top:48%;width:74px;height:74px;margin:-37px 0 0 -37px;border-radius:50%;
 background:radial-gradient(circle at 35% 30%,var(--wax2),var(--wax) 65%);box-shadow:0 4px 10px rgba(0,0,0,.35),inset 0 0 0 5px rgba(255,255,255,.08);
-display:flex;align-items:center;justify-content:center;color:#f5e1d2;font:700 38px/1 'Cormorant Garamond',Georgia,serif;
+display:flex;align-items:center;justify-content:center;color:#f5e1d2;font:700 36px/1 'Playfair Display',Georgia,serif;
 animation:pulse 2.4s ease-in-out infinite}
 .seal:after{content:"";position:absolute;inset:8px;border:2px solid rgba(245,225,210,.45);border-radius:50%}
 @keyframes float{50%{transform:translateY(-6px)}}
@@ -50,7 +50,7 @@ border-radius:74px 74px 0 0;opacity:0}
 @keyframes rise{to{opacity:1;transform:none}}
 .card{width:100%;border-radius:12px;box-shadow:0 12px 34px rgba(60,40,25,.28);display:block}
 .l p{margin:0 0 1.15em;text-align:left;opacity:0;animation:rise .9s ease-out forwards}
-.sign{font-style:italic}
+.sign{font-family:'Bad Script',cursive;font-size:24px;font-style:normal}
 """
 
 FX = """
@@ -69,7 +69,7 @@ if(Date.now()<end)requestAnimationFrame(f);else x.clearRect(0,0,W,H)})()})();
 def _page(title, head, body, script=""):
     return ('<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" '
             'content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">'
-            f'{head}<title>{html.escape(title)}</title><style>{CSS}</style></head><body>'
+            f'{head}<title>{html.escape(title)}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Bad+Script&family=Manrope:wght@400;600&family=Playfair+Display:ital,wght@0,600;1,500&display=swap" rel="stylesheet"><style>{CSS}</style></head><body>'
             f'<canvas id="fx"></canvas><div class="w">{body}</div>{script}</body></html>')
 
 

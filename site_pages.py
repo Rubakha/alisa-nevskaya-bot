@@ -23,16 +23,16 @@ _views_lock = threading.Lock()
 
 CSS = """
 :root{--paper:#f6efe3;--ink:#2b2420;--muted:#7a6d62;--accent:#a3322b;--card:#fffaf2;--line:#e4d8c6}
-*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:18px/1.6 'Jost',system-ui,sans-serif}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:18px/1.6 'Manrope',system-ui,sans-serif}
 a{color:var(--accent)}.wrap{max-width:860px;margin:0 auto;padding:0 18px}
 header{padding:18px 0;border-bottom:1px solid var(--line)}header .wrap{display:flex;justify-content:space-between;align-items:center}
-.logo{font-family:'Cormorant Garamond',serif;font-size:26px;font-weight:600;color:var(--ink);text-decoration:none}
-h1{font-family:'Cormorant Garamond',serif;font-size:42px;line-height:1.15;margin:34px 0 14px}
-h2{font-family:'Cormorant Garamond',serif;font-size:30px;margin:38px 0 10px}
+.logo{font-family:'Playfair Display',serif;font-size:24px;font-weight:600;color:var(--ink);text-decoration:none}
+h1{font-family:'Playfair Display',serif;font-size:38px;line-height:1.18;margin:34px 0 14px}
+h2{font-family:'Playfair Display',serif;font-size:27px;margin:38px 0 10px}
 .lead{font-size:20px;color:var(--muted)}
 .btn{display:inline-block;background:var(--accent);color:#fff;padding:14px 26px;border-radius:40px;text-decoration:none;font-weight:600;margin:8px 8px 8px 0}
 .btn.ghost{background:transparent;color:var(--accent);border:2px solid var(--accent)}
-.hand{font-family:'Caveat',cursive;font-size:27px;line-height:1.35;background:var(--card);border-left:4px solid var(--accent);padding:12px 18px;margin:12px 0;border-radius:6px}
+.hand{font-family:'Bad Script',cursive;font-size:23px;line-height:1.35;background:var(--card);border-left:4px solid var(--accent);padding:12px 18px;margin:12px 0;border-radius:6px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px}
 .tile{background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden;text-decoration:none;color:var(--ink)}
 .tile img{width:100%;aspect-ratio:4/5;object-fit:cover;display:block}.tile div{padding:12px 14px}.tile b{display:block}
@@ -43,7 +43,7 @@ h2{font-family:'Cormorant Garamond',serif;font-size:30px;margin:38px 0 10px}
 .hero-card{max-width:340px;width:100%;border-radius:14px;box-shadow:0 10px 30px rgba(60,40,20,.15);float:right;margin:0 0 16px 22px}
 details{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin:10px 0}summary{font-weight:600;cursor:pointer}
 footer{border-top:1px solid var(--line);margin-top:50px;padding:26px 0;color:var(--muted);font-size:15px}
-@media(max-width:640px){h1{font-size:32px}.hero-card{float:none;margin:10px auto;display:block}}
+@media(max-width:640px){h1{font-size:29px}.hero-card{float:none;margin:10px auto;display:block}}
 """
 
 
@@ -96,7 +96,7 @@ def page(title, desc, body, path, faq=None):
 <meta property="og:type" content="website"><meta property="og:url" content="{canonical}">
 <meta property="og:image" content="{SITE_URL}/card/family.jpg">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500&family=Cormorant+Garamond:wght@600&family=Jost:wght@400;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bad+Script&family=Manrope:wght@400;600&family=Playfair+Display:wght@600&display=swap" rel="stylesheet">
 <style>{CSS}</style>{ld}</head><body>
 <header><div class="wrap"><a class="logo" href="/">Письма Алисы</a><a href="https://t.me/{BOT}?start=w_home">Открыть в Telegram</a></div></header>
 <main class="wrap">{body}</main>

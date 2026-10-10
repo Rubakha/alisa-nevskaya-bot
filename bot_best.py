@@ -4244,7 +4244,7 @@ miniapp_api.register(app, sys.modules[__name__])
 # отдельный секрет не нужен. Наружу отдаются только агрегаты, без личных данных.
 # ── Конверт в браузере (получатели из VK и без Telegram) ─────
 BOT_UA = ("bot", "vkshare", "telegram", "facebookexternalhit", "preview", "crawler", "spider", "whatsapp")
-ENVELOPE_CSS = ("body{margin:0;background:#f6f0e6;color:#3b2f2a;font:18px/1.6 Georgia,serif}"
+ENVELOPE_CSS = ("body{margin:0;background:#f6f0e6;color:#3b2f2a;font:18px/1.6 'Manrope',system-ui,sans-serif}"
                 ".w{max-width:640px;margin:0 auto;padding:32px 16px 48px}img{width:100%;border-radius:10px;"
                 "box-shadow:0 8px 24px rgba(0,0,0,.15)}.b{display:inline-block;margin-top:20px;padding:14px 26px;"
                 "background:#8a4b3c;color:#fff;border-radius:999px;text-decoration:none;font-family:sans-serif}"

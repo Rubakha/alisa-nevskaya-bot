@@ -29,11 +29,24 @@ INK_SOFT = (96, 74, 58)
 ACCENT = (150, 58, 52)  # сургучно-красный
 
 
+# Шрифты открытки: заголовки — Playfair Display, имя и подпись — Bad Script (рукописный), мелкий текст — Manrope
+PLAYFAIR = "PlayfairDisplay-Variable.ttf"
+PLAYFAIR_ITALIC = "PlayfairDisplay-Italic-Variable.ttf"
+SCRIPT = "BadScript-Regular.ttf"
+MANROPE = "Manrope-Variable.ttf"
+FONT_FILES = (PLAYFAIR, PLAYFAIR_ITALIC, SCRIPT, MANROPE)
+
+
 def _font(name, size, variation=None):
+    """Шрифт нужного размера. variation: число — вес переменного шрифта (set_variation_by_axes), строка — имя начертания.
+    Если вариация недоступна, остаётся начертание по умолчанию."""
     f = ImageFont.truetype(os.path.join(FONTS, name), size)
     if variation:
         try:
-            f.set_variation_by_name(variation)
+            if isinstance(variation, (int, float)):
+                f.set_variation_by_axes([variation])
+            else:
+                f.set_variation_by_name(variation)
         except Exception:
             pass
     return f
@@ -305,27 +318,27 @@ def render(product_key, title, line, sign, preview=False, card_ref=None):
     cx, cy, r = W // 2, PHOTO_H - 40, 38
     d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=ACCENT)
     d.ellipse([cx - r + 7, cy - r + 7, cx + r - 7, cy + r - 7], outline=(185, 96, 88), width=2)
-    seal_f = _font("CormorantGaramond.ttf", 44, "Bold")
+    seal_f = _font(PLAYFAIR, 40, 700)
     d.text((cx, cy - 2), "А", font=seal_f, fill=(245, 225, 210), anchor="mm")
 
     y = PHOTO_H + 30
-    t_font, t_lines = _fit(d, title, "CormorantGaramond.ttf", "SemiBold", 70, 46, max_w, 2)
+    t_font, t_lines = _fit(d, title, PLAYFAIR, 600, 62, 40, max_w, 2)
     for ln in t_lines:
         d.text((W // 2, y), ln, font=t_font, fill=INK, anchor="ma")
-        y += int(t_font.size * 1.12)
+        y += int(t_font.size * 1.2)
 
     y += 16
-    l_font, l_lines = _fit(d, line, "Caveat.ttf", "Regular", 58, 40, max_w, 3)
+    l_font, l_lines = _fit(d, line, SCRIPT, None, 50, 34, max_w, 3)
     for ln in l_lines:
         d.text((W // 2, y), ln, font=l_font, fill=INK_SOFT, anchor="ma")
-        y += int(l_font.size * 1.18)
+        y += int(l_font.size * 1.3)
 
     if sign:
-        s_font = _font("Caveat.ttf", 46, "Bold")
+        s_font = _font(SCRIPT, 42)
         sy = max(y + 18, H - 175)
         d.text((W - margin, sy), f"— {sign}", font=s_font, fill=INK, anchor="ra")
 
-    foot = _font("Jost-Medium.ttf", 21)
+    foot = _font(MANROPE, 20, 600)
     label = "ПИСЬМО ОТ АЛИСЫ НЕВСКОЙ"
     spaced = " ".join(label)
     d.text((W // 2, H - 62), spaced, font=foot, fill=(170, 150, 132), anchor="ma")
@@ -333,7 +346,7 @@ def render(product_key, title, line, sign, preview=False, card_ref=None):
     if preview:
         layer = Image.new("RGBA", (W * 2, H * 2), (0, 0, 0, 0))
         ld = ImageDraw.Draw(layer)
-        wf = _font("Jost-Medium.ttf", 54)
+        wf = _font(MANROPE, 52, 600)
         for yy in range(0, H * 2, 230):
             ld.text((0, yy), ("превью   " * 12), font=wf, fill=(255, 255, 255, 115))
         layer = layer.rotate(28, resample=Image.BICUBIC)

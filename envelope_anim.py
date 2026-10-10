@@ -16,7 +16,7 @@ W = H = 480
 CREAM_TOP, CREAM_BOT = (251, 246, 236), (239, 227, 208)
 WAX, WAX2 = (143, 47, 42), (185, 84, 76)
 GOLD = (233, 201, 138)
-FONT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "fonts", "CormorantGaramond.ttf")
+FONT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "fonts", "PlayfairDisplay-Variable.ttf")
 _cache = {}
 
 
@@ -32,7 +32,7 @@ def _bg():
 def _font(size):
     f = ImageFont.truetype(FONT, size * S)
     try:
-        f.set_variation_by_name("Bold")
+        f.set_variation_by_axes([700])   # вес переменного шрифта
     except Exception:
         pass
     return f
