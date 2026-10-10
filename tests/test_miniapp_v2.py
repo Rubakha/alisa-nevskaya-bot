@@ -408,6 +408,152 @@ assert call("get", f"/orders/{t2}/voice.mp3", user=999).status_code == 404
 assert j(call("get", f"/orders/{t2}", user=999))["status"] == "delivered"
 VLM.make = fake_make
 
+# ═══ Блок 4: письмо группой ═══
+GCALLS = []
+GROUP_LETTER = ("Дорогая мама, это от всех нас." + chr(10) * 2 + "Аня помнит твои блины. " * 8 + chr(10) * 2
+                + "Боря благодарен за всё. " * 8 + chr(10) * 2 + "Целуем. Твои дети.")
+
+
+def fake_group_letter(brief, name, who, parts, sign, title, previous="", wish=""):
+    GCALLS.append({"signs": [p["sign"] for p in parts], "previous": previous, "wish": wish, "name": name})
+    return {"letter": GROUP_LETTER + f" #{len(GCALLS)}", "card_title": title, "card_line": "Мы любим тебя"}
+
+
+FakeAI.generate_group_letter = staticmethod(fake_group_letter)
+GL = B.group_letters
+
+go = j(call("get", "/groups/options", user=None))
+assert go["price"] == 399 and go["maxParticipants"] == 12 and go["minToBuild"] == 2
+assert {"family", "birthday"} <= {o["key"] for o in go["occasions"]} and "{name}" in go["questions"][0]["text"]
+assert call("post", "/groups", user=None, data={}).status_code == 401
+for bad in ({"occasion": "love", "name": "Мама", "who": "мама", "sign": "Дети"},
+            {"occasion": "family", "name": "", "who": "мама", "sign": "Дети"},
+            {"occasion": "family", "name": "Мама", "who": "м" * 61, "sign": "Дети"},
+            {"occasion": "family", "name": "Мама", "who": "мама", "sign": ""}):
+    assert call("post", "/groups", user=520, data=bad).status_code == 400, bad
+r = call("post", "/groups", user=520, data={"occasion": "family", "name": "Мама", "who": "наша мама", "sign": "Твои дети"})
+g1 = j(r)
+code = g1["code"]
+assert r.status_code == 200 and g1["status"] == "open" and len(code) >= 4
+assert g1["inviteUrl"] == f"https://t.me/{B.BOT_USERNAME}/app?startapp=grp_{code}", g1["inviteUrl"]
+assert g1["botUrl"] == f"https://t.me/{B.BOT_USERNAME}?start=grp_{code}" and "t.me/share/url" in g1["shareUrl"]
+assert "сюрприз" in g1["shareText"] and "Мама" in g1["shareText"]
+
+# организатор и участник видят разное
+org = j(call("get", f"/groups/{code}", user=520))
+assert org["isOrganizer"] and org["participants"] == [] and org["count"] == 0 and org["canBuild"] is False
+assert org["price"] == 399 and org["inviteUrl"] == g1["inviteUrl"] and org["status"] == "open"
+guest = j(call("get", f"/groups/{code}", user=521))
+assert guest["isOrganizer"] is False and "participants" not in guest and guest["alreadyAnswered"] is False
+assert "Мама" in guest["questions"][0]["text"] and "{name}" not in guest["questions"][0]["text"]
+assert guest["organizerName"] and guest["name"] == "Мама" and guest["full"] is False
+assert call("get", "/groups/nope1234", user=521).status_code == 404 and call("get", f"/groups/{code}", user=None).status_code == 401
+assert 521 in GL.get_group(code)["opened"]
+
+# ответы участников
+good_a = {"memory": "Помню, как мы пекли блины по воскресеньям", "thanks": "Спасибо тебе за всё, что ты для нас делаешь", "sign": "Аня"}
+assert call("post", f"/groups/{code}/answers", user=521, data={**good_a, "memory": "коротко"}).status_code == 400
+assert call("post", f"/groups/{code}/answers", user=521, data={**good_a, "thanks": "я" * 801}).status_code == 400
+assert call("post", f"/groups/{code}/answers", user=521, data={**good_a, "sign": ""}).status_code == 400
+n = len(SENT)
+assert j(call("post", f"/groups/{code}/answers", user=521, data=good_a)) == {"ok": True, "count": 1}
+assert any("Аня" in s[1][1] and "написал(а) свою часть" in s[1][1] for s in sent_to(520, n)), "организатору — сообщение в бота"
+assert j(call("get", f"/groups/{code}", user=521))["alreadyAnswered"] is True
+assert j(call("post", f"/groups/{code}/answers", user=521, data={**good_a, "thanks": "Новый вариант слов благодарности"}))["count"] == 1
+assert GL.get_group(code)["participants"][0]["thanks"] == "Новый вариант слов благодарности"
+assert j(call("post", f"/groups/{code}/answers", user=520, data={**good_a, "sign": "Боря"}))["count"] == 2
+org = j(call("get", f"/groups/{code}", user=520))
+assert [p["sign"] for p in org["participants"]] == ["Аня", "Боря"] and org["canBuild"] is True and org["participants"][1]["isMe"]
+blob = json.dumps(org, ensure_ascii=False) + json.dumps(j(call("get", f"/groups/{code}", user=521)), ensure_ascii=False)
+assert "блины" not in blob and "Новый вариант" not in blob, "тексты участников друг другу не показываются"
+# переполнение: 12 мест
+big = j(call("post", "/groups", user=530, data={"occasion": "birthday", "name": "Витя", "who": "друг", "sign": "Друзья"}))["code"]
+gg = GL.get_group(big)
+gg["participants"] = [{"chat_id": 9000 + i, "sign": f"П{i}", "memory": "воспоминание" * 2, "thanks": "благодарность" * 2} for i in range(12)]
+GL.save_group(gg)
+r = call("post", f"/groups/{big}/answers", user=531, data=good_a)
+assert r.status_code == 409 and j(r)["error"]["code"] == "group_full"
+assert j(call("get", f"/groups/{big}", user=531))["full"] is True
+# лимит открытых групп
+for i in range(4):
+    assert call("post", "/groups", user=540, data={"occasion": "family", "name": f"М{i}", "who": "мама", "sign": "Дети"}).status_code == 200
+assert call("post", "/groups", user=540, data={"occasion": "family", "name": "М9", "who": "мама", "sign": "Дети"}).status_code == 200
+r = call("post", "/groups", user=540, data={"occasion": "family", "name": "М10", "who": "мама", "sign": "Дети"})
+assert r.status_code == 429 and j(r)["error"]["code"] == "too_many_groups"
+
+# сборка письма: только организатор, минимум 2 части, ИИ видит все голоса
+solo = j(call("post", "/groups", user=550, data={"occasion": "family", "name": "Папа", "who": "папа", "sign": "Дети"}))["code"]
+call("post", f"/groups/{solo}/answers", user=550, data=good_a)
+r = call("post", f"/groups/{solo}/build", user=550, data={})
+assert r.status_code == 412 and j(r)["error"]["code"] == "not_enough"
+assert call("post", f"/groups/{code}/build", user=521, data={}).status_code == 403
+r = call("post", f"/groups/{code}/build", user=520, data={})
+b1 = j(r)
+oid = b1["orderId"]
+assert r.status_code == 200 and b1["status"] == "preview" and b1["product"] == "family" and b1["outdated"] is False
+assert b1["price"] == 399 and b1["basePrice"] == 399 and b1["locked"] and b1["previewHidden"] and b1["hiddenParagraphs"] >= 1
+assert GCALLS[-1]["signs"] == ["Аня", "Боря"] and GCALLS[-1]["name"] == "Мама"
+assert "Целуем" not in json.dumps(b1, ensure_ascii=False) and "letter" not in b1, "хвост группового письма до оплаты не отдаём"
+assert j(call("post", f"/groups/{code}/build", user=520, data={}))["orderId"] == oid and len(GCALLS) == 1, "повтор — тот же заказ без новой генерации"
+assert B.read_json(A.draft_path(oid), {})["group"] == code
+assert j(call("get", f"/groups/{code}", user=520))["status"] == "built"
+assert [x["status"] for x in j(call("get", "/groups", user=520))["items"] if x["code"] == code] == ["built"]
+assert j(call("get", "/groups", user=521))["items"] == [], "список — только свои группы"
+# новый участник после сборки → outdated и пересборка в тот же заказ
+call("post", f"/groups/{code}/answers", user=522, data={**good_a, "sign": "Вера"})
+assert j(call("post", f"/groups/{code}/build", user=520, data={}))["outdated"] is True
+b2 = j(call("post", f"/groups/{code}/build", user=520, data={"rebuild": True}))
+assert b2["orderId"] == oid and b2["outdated"] is False and GCALLS[-1]["signs"] == ["Аня", "Боря", "Вера"]
+# перегенерация: 2 бесплатных + 1 пожелание, на тех же участниках; кредит и озвучка недоступны
+pv = call("post", f"/orders/{oid}/preview", user=520)
+assert pv.status_code == 200 and GCALLS[-1]["previous"] and GCALLS[-1]["signs"] == ["Аня", "Боря", "Вера"]
+r = call("put", f"/orders/{oid}/voice", user=520, data={"enabled": True, "gender": "f"})
+assert r.status_code == 409 and j(r)["error"]["code"] == "voice_not_allowed"
+c = B.get_client(520)
+c["credits"] = 1
+B.write_json(B.client_path(520), c)
+assert j(call("get", f"/orders/{oid}", user=520))["creditsAvailable"] == 0
+r = call("post", f"/orders/{oid}/pay", user=520, data={"useCredit": True})
+assert r.status_code == 409 and j(r)["error"]["code"] == "credit_not_allowed"
+assert call("put", f"/orders/{oid}/card", user=520, data={"ref": B.cardbase.active_ids("family")[0]}).status_code == 200
+# оплата 399 ₽ → группа закрывается, участники больше не пишут
+r = call("post", f"/orders/{oid}/pay", user=520, data={})
+assert j(r)["price"] == 399 and PAYS[f"pay-{oid}"]["price"] == "399.00", j(r)
+assert B.get_order(oid)["group_id"] == code and GL.get_group(code)["status"] == "ordered" and GL.get_group(code)["order_id"] == oid
+assert j(call("get", f"/groups/{code}", user=520))["status"] == "ordered"
+r = call("post", f"/groups/{code}/answers", user=523, data=good_a)
+assert r.status_code == 409 and j(r)["error"]["code"] == "group_closed"
+assert j(call("get", f"/groups/{code}", user=523))["questions"] == [], "закрытая группа: экран «письмо уже собрано»"
+assert call("delete", f"/groups/{code}", user=520).status_code == 409
+# отмена до оплаты возвращает группу в сбор
+assert j(call("post", f"/orders/{oid}/cancel", user=520)) == {"ok": True}
+assert GL.get_group(code)["status"] == "open" and GL.get_group(code)["order_id"] is None
+r = call("post", f"/groups/{code}/answers", user=523, data=good_a)
+assert r.status_code == 200, "после отмены группа снова принимает части"
+b3 = j(call("post", f"/groups/{code}/build", user=520, data={}))
+assert b3["orderId"] != oid and b3["outdated"] is False, "после отмены собирается новое письмо"
+oid2 = b3["orderId"]
+call("post", f"/orders/{oid2}/pay", user=520, data={})
+mark_paid(oid2)
+st = j(call("post", f"/orders/{oid2}/pay/check", user=520))
+assert st["paid"] and B.get_order(oid2)["status"] == "done"
+od = j(call("get", f"/orders/{oid2}", user=520))
+assert od["status"] == "delivered" and "Целуем" in od["letter"] and od["price"] == 399
+assert any(s[0] == "send_photo" and s[1][0] == 520 for s in SENT), "выдача как у бота"
+# напоминание и удаление
+rm = j(call("post", f"/groups/{big}/remind", user=530, data={}))
+assert "Витя" in rm["text"] and rm["inviteUrl"].endswith(f"startapp=grp_{big}") and "t.me/share/url" in rm["shareUrl"]
+assert call("post", f"/groups/{big}/remind", user=531, data={}).status_code == 403
+fresh = j(call("post", "/groups", user=560, data={"occasion": "toast", "name": "Оля", "who": "коллега", "sign": "Отдел"}))["code"]
+assert call("post", f"/groups/{fresh}/remind", user=560, data={}).status_code == 409, "напоминать некому"
+assert call("delete", f"/groups/{big}", user=531).status_code == 403
+assert j(call("delete", f"/groups/{big}", user=530)) == {"ok": True}
+assert call("get", f"/groups/{big}", user=531).status_code == 404
+assert big not in [x["code"] for x in j(call("get", "/groups", user=530))["items"]]
+# группа тестера не попадает в метрики
+tg = j(call("post", "/groups", user=999, data={"occasion": "family", "name": "Мама", "who": "мама", "sign": "Дети"}))["code"]
+assert GL.get_group(tg)["is_test"] is True and tg not in [g["code"] for g in GL.all_groups()]
+
 # откат флагом
 os.environ["MINIAPP_API_V2"] = "0"
 from flask import Flask  # noqa: E402

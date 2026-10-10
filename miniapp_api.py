@@ -623,7 +623,7 @@ def present(d):
         "giftFor": d.get("name"), "sign": d.get("sign"), "tone": d.get("tone"),
         "price": ((order.get("test_price_rub") if order.get("is_test") else order["price_rub"]) if done else q["payable"]),
         "test": bool(order and order.get("is_test")),
-        "basePrice": B.OCC.PRODUCTS[d["product"]]["price"], "voice": voice_summary(d, order),
+        "basePrice": d.get("price") or B.OCC.PRODUCTS[d["product"]]["price"], "voice": voice_summary(d, order),
         "discount": ({"rub": q["discount"], "label": q["label"], "balanceUsed": q["balance_used"]} if q and
                      (q["discount"] or q["balance_used"]) else None),
         "cardRef": ref, "cardTitle": title_line(d)[0], "cardLine": title_line(d)[1],
@@ -677,6 +677,14 @@ def gen_guard(user_id):
 
 def generate_letter(d, previous="", wish=""):
     ai = B.AI
+    if d.get("group"):   # общее письмо: тот же набор голосов участников (group_letters.generate)
+        if not (ai and ai.available() and hasattr(ai, "generate_group_letter")):
+            raise err("ai_unavailable", "Помощник сейчас недоступен. Попробуй позже.", 503)
+        res = B.group_letters.generate(d["group"], previous=previous, wish=wish)
+        if not res or res["letter"].startswith("[ai]"):
+            B.log.error("miniapp group letter failed: %s", (res or {}).get("letter", "")[:80])
+            raise err("ai_failed", "Не получилось собрать письмо прямо сейчас. Попробуй через пару минут.", 502)
+        return res
     if not (ai and ai.available() and hasattr(ai, "generate_occasion")):
         raise err("ai_unavailable", "Помощник сейчас недоступен. Попробуй позже.", 503)
     p = B.OCC.PRODUCTS[d["product"]]
@@ -1103,6 +1111,8 @@ def routes():
         if order and order.get("status") == "pending":
             order["status"] = "cancelled"
             B.save_order(order)
+            if order.get("group_id"):   # как в боте: группа снова принимает части
+                B.group_letters.reopen(order["group_id"], order["order_id"])
         try:
             os.remove(draft_path(order_id))
         except OSError:
@@ -1227,7 +1237,8 @@ def routes():
                 "referralLink": P.friend_link(user["id"]), "friendDiscount": P.FRIEND_DISCOUNT,
                 "friendBonusRub": P.FRIEND_BONUS_RUB,
                 "invitedFriends": len(profile.get("referrals", [])),
-                "isTester": B.is_test_user(user["id"]), "mailing": not profile.get("mailing_off")}
+                "isTester": B.is_test_user(user["id"]), "mailing": not profile.get("mailing_off"),
+                "voiceAvailable": bool(VL().enabled() and VL().upsell_price() > 0)}
 
     @endpoint("/me/orders")
     def me_orders(user):
@@ -1275,6 +1286,8 @@ def routes():
             if order.get("status") == "pending":
                 order["status"] = "cancelled"
                 action = "cancelled"
+                if order.get("group_id"):
+                    B.group_letters.reopen(order["group_id"], order["order_id"])
             elif order.get("status") in ("done", "cancelled"):
                 order["hidden_by_client"] = True
                 action = "hidden"

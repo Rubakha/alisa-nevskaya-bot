@@ -453,3 +453,238 @@ def routes_voice():
     @A.endpoint("/orders/<order_id>/voice.ogg", auth="sig")
     def voice_ogg(order_id, user):
         return audio(order_id, user, "ogg", "audio/ogg")
+
+
+# ── письмо группой (399 ₽) ─────────────────────────────────────────
+MAX_OPEN_GROUPS = 5
+GROUP_FIELD_MAX = 60
+
+
+def GL():
+    return B.group_letters
+
+
+def invite_url(code):
+    short = os.getenv("MINIAPP_SHORTNAME", "app")
+    return f"https://t.me/{B.BOT_USERNAME}/{short}?startapp=grp_{code}"
+
+
+def share_text(g):
+    name = g["name"]
+    return (f"💌 Собираем общее письмо для {name} ({g['who']}) — каждому нужно написать пару тёплых слов. "
+            f"Два коротких ответа по ссылке, бесплатно. Только пока не показывай это {name} — это сюрприз 🤍")
+
+
+def share_url(g):
+    import urllib.parse
+    return ("https://t.me/share/url?url=" + urllib.parse.quote(invite_url(g["code"]), safe="")
+            + "&text=" + urllib.parse.quote(share_text(g), safe=""))
+
+
+def group_or_404(code):
+    g = GL().get_group(code or "")
+    if not g or g.get("deleted"):
+        raise A.err("not_found", "Эта ссылка не работает — попроси прислать новую.", 404)
+    return g
+
+
+def organizer_group(code, user):
+    g = group_or_404(code)
+    if g["organizer"] != user["id"]:
+        raise A.err("forbidden", "Это письмо собирает другой человек.", 403)
+    return g
+
+
+def group_status(g):
+    if g.get("status") == "ordered":
+        return "ordered"
+    return "built" if g.get("built") and A.load_draft(g.get("api_order_id") or "") else "open"
+
+
+def questions_for(g):
+    return [{"key": k, "text": t} for k, t in GL().questions(g)]
+
+
+def group_view(g, user):
+    mine = next((p for p in g["participants"] if p["chat_id"] == user["id"]), None)
+    is_org = g["organizer"] == user["id"]
+    open_ = g["status"] == "open"
+    out = {"code": g["code"], "name": g["name"], "who": g["who"], "occasion": g["occasion"],
+           "organizerName": g["organizer_name"], "status": group_status(g), "isOrganizer": is_org,
+           "alreadyAnswered": mine is not None, "full": len(g["participants"]) >= GL().MAX_PARTICIPANTS and mine is None,
+           "questions": questions_for(g) if open_ else []}
+    if mine:
+        out["mine"] = {"sign": mine["sign"]}
+    if is_org:
+        count = len(g["participants"])
+        out.update(participants=[{"sign": p["sign"], "isMe": p["chat_id"] == user["id"], "at": p.get("at")}
+                                 for p in g["participants"]],
+                   count=count, maxParticipants=GL().MAX_PARTICIPANTS, canBuild=open_ and count >= GL().MIN_TO_BUILD,
+                   shareText=share_text(g), shareUrl=share_url(g), inviteUrl=invite_url(g["code"]),
+                   price=GL().GROUP_PRICE, orderId=g.get("api_order_id"), opened=len(g.get("opened", [])))
+    return out
+
+
+def own_groups(chat_id):
+    out = []
+    d = GL()._dir()
+    for f in os.listdir(d):
+        if f.endswith(".json"):
+            g = B.read_json(os.path.join(d, f), None)
+            if g and g.get("organizer") == chat_id and not g.get("deleted"):
+                out.append(g)
+    return sorted(out, key=lambda g: g.get("created_at", ""), reverse=True)
+
+
+def group_draft(g, user, res):
+    """Черновик заказа из собранного группового письма (как состояние occ_paywall в bot: build_cb)."""
+    p = B.OCC.PRODUCTS[g["occasion"]]
+    ref = B.cardbase_pick(user["id"], g["occasion"], [])
+    oid = B.new_order_id()
+    return {"order_id": oid, "api_order_id": oid, "chat_id": user["id"],
+            "user": {k: user.get(k, "") for k in ("first_name", "last_name", "username")},
+            "product": g["occasion"], "qa": [], "data": {}, "tone": p.get("tone") or "tender", "sign": g["sign"],
+            "name": g["name"], "default_title": p["card_title"].format(name=g["name"])[:40],
+            "letter": res["letter"], "card_title": res["card_title"], "card_line": res["card_line"],
+            "card_ref": ref, "card_seen": [ref] if ref else [], "retexts": 0, "wish_used": False, "promo": None,
+            "source": None, "group": g["code"], "price": GL().GROUP_PRICE, "group_count": len(g["participants"]),
+            "created_at": B.now_msk().isoformat()}
+
+
+def routes_groups():
+    @A.endpoint("/groups/options", auth=False)
+    def groups_options():
+        G = GL()
+        occasions = [{"key": k, "icon": B.OCC.PRODUCTS[k]["icon"], "title": B.OCC.PRODUCTS[k]["title"]}
+                     for k in G.GROUP_OCCASIONS if k in B.OCC.PRODUCTS]
+        return {"price": G.GROUP_PRICE, "maxParticipants": G.MAX_PARTICIPANTS, "minToBuild": G.MIN_TO_BUILD,
+                "occasions": occasions,
+                "questions": [{"key": k, "text": t} for k, t in G.questions({"name": "{name}"})]}
+
+    @A.endpoint("/groups", methods=("POST",))
+    def groups_create(user):
+        data = A.body()
+        occasion = data.get("occasion")
+        if occasion not in GL().GROUP_OCCASIONS or occasion not in B.OCC.PRODUCTS:
+            raise A.err("bad_occasion", "Выбери повод из списка.", 400)
+        fields = {}
+        for key, label in (("name", "имя получателя"), ("who", "кто он(а) для вас"), ("sign", "подпись от всех")):
+            val = str(data.get(key) or "").strip()
+            if not 1 <= len(val) <= GROUP_FIELD_MAX:
+                raise A.err("bad_fields", f"Укажи {label} — до {GROUP_FIELD_MAX} знаков.", 400, field=key)
+            fields[key] = val
+        if len([g for g in own_groups(user["id"]) if g["status"] == "open"]) >= MAX_OPEN_GROUPS:
+            raise A.err("too_many_groups", "Открытых писем уже пять — закончи или удали одно из них.", 429)
+        profile = B.upsert_client(A.tg_user(user))
+        import secrets
+        code = secrets.token_urlsafe(5).replace("-", "x").replace("_", "y")
+        g = {"code": code, "kind": "family", "organizer": user["id"], "organizer_name": profile["name"],
+             "occasion": occasion, "name": fields["name"], "who": fields["who"], "sign": fields["sign"],
+             "created_at": B.now_msk().isoformat(), "status": "open", "participants": [], "opened": [],
+             "built": False, "order_id": None, "is_test": B.is_test_user(user["id"])}
+        GL().save_group(g)
+        return {"code": code, "status": "open", "inviteUrl": invite_url(code),
+                "botUrl": GL().invite_link(code), "shareText": share_text(g), "shareUrl": share_url(g)}
+
+    @A.endpoint("/groups")
+    def groups_list(user):
+        return {"items": [{"code": g["code"], "name": g["name"], "who": g["who"], "occasion": g["occasion"],
+                           "status": group_status(g), "participants": len(g["participants"]),
+                           "createdAt": g.get("created_at"), "orderId": g.get("api_order_id")}
+                          for g in own_groups(user["id"])]}
+
+    @A.endpoint("/groups/<code>")
+    def groups_get(code, user):
+        g = group_or_404(code)
+        if user["id"] not in g["opened"] and g["organizer"] != user["id"]:
+            g["opened"].append(user["id"])
+            GL().save_group(g)
+        return group_view(g, user)
+
+    @A.endpoint("/groups/<code>/answers", methods=("POST",))
+    def groups_answer(code, user):
+        g = group_or_404(code)
+        if g["status"] != "open":
+            raise A.err("group_closed", "Письмо уже собрано и отправлено — спасибо, что хотели присоединиться 🤍", 409)
+        mine = any(p["chat_id"] == user["id"] for p in g["participants"])
+        if len(g["participants"]) >= GL().MAX_PARTICIPANTS and not mine:
+            raise A.err("group_full", "Все места в этом письме уже заняты 🤍", 409)
+        data = A.body()
+        out = {}
+        for key in ("memory", "thanks"):
+            val = str(data.get(key) or "").strip()
+            if not 10 <= len(val) <= 800:
+                raise A.err("bad_answers", "Ответ — от 10 до 800 знаков: напиши пару слов от себя 🙂", 400, field=key)
+            out[key] = val
+        sign = str(data.get("sign") or "").strip()
+        if not 1 <= len(sign) <= 40:
+            raise A.err("bad_answers", "Подпись — коротко, до 40 знаков.", 400, field="sign")
+        B.upsert_client(A.tg_user(user))
+        part = {"chat_id": user["id"], "sign": sign, "memory": out["memory"], "thanks": out["thanks"],
+                "at": B.now_msk().isoformat()}
+        g["participants"] = [p for p in g["participants"] if p["chat_id"] != user["id"]] + [part]
+        if user["id"] not in g["opened"]:
+            g["opened"].append(user["id"])
+        GL().save_group(g)
+        n = len(g["participants"])
+        if g["organizer"] != user["id"]:
+            try:
+                B.bot.send_message(g["organizer"], f"✍️ {B.esc(sign)} написал(а) свою часть. Уже: {n}.", parse_mode="HTML")
+            except Exception as exc:
+                B.log.error("group notify organizer: %s", exc)
+        return {"ok": True, "count": n}
+
+    @A.endpoint("/groups/<code>/build", methods=("POST",))
+    def groups_build(code, user):
+        g = organizer_group(code, user)
+        data = A.body()
+        if g["status"] != "open":
+            raise A.err("already_built", "Письмо уже оплачено.", 409, orderId=g.get("api_order_id"))
+        if len(g["participants"]) < GL().MIN_TO_BUILD:
+            raise A.err("not_enough", f"Нужно хотя бы {GL().MIN_TO_BUILD} части — добавь свою и позови близких.", 412)
+        d = A.load_draft(g.get("api_order_id") or "")
+        if d and d.get("letter") and not data.get("rebuild"):
+            out = A.present(d)
+            out["outdated"] = len(g["participants"]) != d.get("group_count")
+            return out
+        A.gen_guard(user["id"])
+        res = A.generate_letter({"group": code, "product": g["occasion"]})
+        if d and d.get("letter"):   # пересборка с новыми участниками в тот же заказ
+            d.update(letter=res["letter"], card_title=res["card_title"], card_line=res["card_line"], retexts=0,
+                     wish_used=False, group_count=len(g["participants"]))
+        else:
+            d = group_draft(g, user, res)
+        A.save_draft(d)
+        g["built"] = True
+        g["api_order_id"] = d["order_id"]
+        GL().save_group(g)
+        B.cb_event(user["id"], "preview", d["product"], d.get("card_ref"))
+        out = A.present(d)
+        out["outdated"] = False
+        return out
+
+    @A.endpoint("/groups/<code>/remind", methods=("POST",))
+    def groups_remind(code, user):
+        g = organizer_group(code, user)
+        if g["status"] != "open" or not g["participants"]:
+            raise A.err("nothing_to_remind", "Напоминать пока некому.", 409)
+        import urllib.parse
+        text = (f"🤍 Напоминаю про общее письмо для {g['name']} — пока не хватает твоей части. "
+                "Два коротких ответа, это бесплатно:")
+        return {"text": text, "inviteUrl": invite_url(code),
+                "shareUrl": "https://t.me/share/url?url=" + urllib.parse.quote(invite_url(code), safe="")
+                + "&text=" + urllib.parse.quote(text, safe="")}
+
+    @A.endpoint("/groups/<code>", methods=("DELETE",))
+    def groups_delete(code, user):
+        g = organizer_group(code, user)
+        if g["status"] == "ordered":
+            raise A.err("group_ordered", "Письмо уже оформлено — удалить нельзя.", 409)
+        if g.get("api_order_id"):
+            try:
+                os.remove(A.draft_path(g["api_order_id"]))
+            except OSError:
+                pass
+        g["deleted"] = True
+        GL().save_group(g)
+        return {"ok": True}
