@@ -261,8 +261,19 @@ def fake_yk(method, url, payload=None, idem=None):
 B.yk_request = fake_yk
 ot = j(call("post", "/orders", user=999, data={"product": "birthday", "answers": ANSWERS}))["orderId"]
 call("post", f"/orders/{ot}/preview", user=999)
+n_yk = len(YK_CALLS)
 r = call("post", f"/orders/{ot}/pay", user=999, data={})
-assert r.status_code == 403 and j(r)["error"]["code"] == "test_user", "тестовую оплату через API не выводим"
+tp = j(r)
+assert r.status_code == 200 and tp["paid"] is True and tp["price"] == 0 and tp["test"] is True and tp["realPrice"] == 199, tp
+assert len(YK_CALLS) == n_yk, "ЮKassa для тестового аккаунта не трогаем"
+to = B.get_order(ot)
+assert to["status"] == "done" and to["is_test"] is True and to["price_rub"] == 0 and to["test_price_rub"] == 199
+assert to["charge_id"].startswith("test-") and to not in B.all_orders(), "тестовый заказ вне статистики"
+ts = j(call("get", f"/orders/{ot}", user=999))
+assert ts["status"] == "delivered" and ts["price"] == 199 and ts["test"] is True, "на экране — настоящая цена и пометка «тест»"
+assert j(call("post", f"/orders/{ot}/pay", user=999, data={})) == {"paid": True, "price": 0, "test": True}, "повтор — тот же заказ"
+assert j(call("post", f"/orders/{ot}/send", user=999))["envelopeUrl"], "тестовый заказ можно отправить получателю"
+assert j(call("get", "/me/orders", user=999))["items"][0]["test"] is True
 r = call("post", f"/orders/{oid}/pay", data={"promo": "NOPE"})
 assert r.status_code == 400 and j(r)["error"]["code"] == "bad_promo"
 r = call("post", f"/orders/{oid}/pay", data={"promo": "TEST20"})
@@ -423,6 +434,69 @@ opts = j(call("get", "/card-options", user=None))
 assert opts["ai"]["enabled"] is True and opts["ai"]["maxTries"] == 3 and opts["ai"]["maxExtras"] == 2
 assert "water" in opts["ai"]["styles"] and "cake" in opts["ai"]["scenes"]["birthday"] and "warm" in opts["ai"]["palettes"]
 assert "candles" in opts["ai"]["extras"] and set(opts["props"]) >= {"tea_cup", "ribbon_bow"}
+
+# ── заказы, созданные в самом боте (черновика нет): чтение, картинка, кабинет ──
+bot_done = {"order_id": "ALI-9000000001", "chat_id": 500, "name": "Сергей", "pain": "birthday", "product": "birthday",
+            "answers": [], "qa": [], "letter_text": "Танюша, привет. Письмо из бота.", "card_title": "С днём рождения, Танюша!",
+            "card_line": "Ты лучшая", "card_ref": ids[0], "sign": "Серёжа", "price_rub": 199, "status": "done",
+            "is_gift": True, "gift_for": "Танюша", "created_at": B.now_msk().isoformat(),
+            "paid_at": B.now_msk().isoformat(), "delivered_at": B.now_msk().isoformat(), "rating": None}
+B.save_order(bot_done)
+assert A.load_draft("ALI-9000000001") is None
+bs = j(call("get", "/orders/ALI-9000000001"))
+assert bs["status"] == "delivered" and bs["letter"].startswith("Танюша") and bs["cardRef"] == ids[0], bs
+assert bs["envelopeUrl"].startswith(B.site_pages.SITE_URL + "/e/") and bs["giftFor"] == "Танюша" and bs["locked"] is False
+assert call("get", "/orders/ALI-9000000001", user=777).status_code == 404, "чужой заказ из бота не читается"
+assert call("get", "/orders/ALI-9000000001", user=None).status_code == 401
+assert call("get", "/orders/ALI-9000000001/card.jpg").data[:2] == b"\xff\xd8", "оплаченная открытка заказа из бота"
+mine = {i["orderId"]: i for i in j(call("get", "/me/orders"))["items"]}
+bi = mine["ALI-9000000001"]
+assert bi["status"] == "delivered" and bi["opened"] is False and bi["giftFor"] == "Танюша"
+by_sig = client.get(bi["previewUrl"].replace(B.site_pages.SITE_URL, ""))
+assert by_sig.status_code == 200 and by_sig.data[:2] == b"\xff\xd8", "превью в кабинете грузится по подписанной ссылке"
+assert client.get(bi["previewUrl"].replace(B.site_pages.SITE_URL, "").replace("sig=", "sig=0")).status_code == 401
+assert call("get", "/orders/ALI-9000000001/card.jpg", user=777).status_code == 404
+assert not os.path.exists(A.draft_path("ALI-9000000001")), "файл черновика для заказа из бота не создаётся"
+# неоплаченный заказ из бота виден владельцу, чужому — нет
+bot_pend = {**bot_done, "order_id": "ALI-9000000002", "status": "pending", "paid_at": None, "delivered_at": None}
+B.save_order(bot_pend)
+assert call("get", "/orders/ALI-9000000002", user=500).status_code == 200 and call("get", "/orders/ALI-9000000002", user=777).status_code == 404
+assert call("get", "/orders/ALI-9000000002/card.jpg", user=500).status_code == 404, "открытка до оплаты не отдаётся"
+assert call("get", "/orders/ALI-9000000002/card-preview.jpg", user=500).status_code == 200
+# заказ без поддерживаемого повода (старый формат) через API не открывается
+B.save_order({**bot_done, "order_id": "ALI-9000000003", "product": "legacy", "pain": "legacy"})
+assert call("get", "/orders/ALI-9000000003").status_code == 404
+
+# ── удаление и очистка в кабинете ──
+r = j(call("delete", "/me/orders/ALI-9000000002"))
+assert r == {"ok": True, "action": "cancelled"} and B.get_order("ALI-9000000002")["status"] == "cancelled"
+assert "ALI-9000000002" not in {i["orderId"] for i in j(call("get", "/me/orders"))["items"]}
+assert call("delete", "/me/orders/ALI-9000000001", user=777).status_code == 404, "чужой заказ не скрыть"
+assert call("delete", "/me/orders/ALI-9000000001", user=None).status_code == 401
+assert call("delete", "/me/orders/..%2Fx").status_code in (400, 404)
+B.save_order({**bot_done, "order_id": "ALI-9000000004", "opened_at": B.now_msk().isoformat(), "gift_for": "Милая"})
+mine = {i["orderId"]: i for i in j(call("get", "/me/orders"))["items"]}
+assert mine["ALI-9000000004"]["opened"] is True and mine["ALI-9000000001"]["opened"] is False
+r = j(call("delete", "/me/orders/ALI-9000000001"))
+assert r == {"ok": True, "action": "hidden"}
+hidden = B.get_order("ALI-9000000001")
+assert hidden["hidden_by_client"] is True and hidden["status"] == "done" and hidden["price_rub"] == 199, "запись и деньги целы"
+assert "ALI-9000000001" not in {i["orderId"] for i in j(call("get", "/me/orders"))["items"]}
+assert B.envelope_order(B.occ_gift_code(hidden)), "ссылка-конверт получателя работает"
+assert j(call("get", "/orders/ALI-9000000001"))["status"] == "delivered", "по прямой ссылке заказ читается"
+assert hidden in B.client_orders(500) and hidden["order_id"] in {o["order_id"] for o in B.all_orders()}, "в учёте остаётся"
+r = j(call("post", "/me/orders/clear-opened"))
+assert r == {"ok": True, "hidden": 1} and B.get_order("ALI-9000000004")["hidden_by_client"] is True
+assert j(call("post", "/me/orders/clear-opened")) == {"ok": True, "hidden": 0}, "повтор ничего не скрывает"
+assert not [i for i in j(call("get", "/me/orders"))["items"] if i["orderId"] in ("ALI-9000000001", "ALI-9000000004")]
+assert call("post", "/me/orders/clear-opened", user=None).status_code == 401
+# черновик без заказа удаляется
+dr = j(call("post", "/orders", user=620, data={"product": "birthday", "answers": ANSWERS}))["orderId"]
+assert j(call("delete", f"/me/orders/{dr}", user=620)) == {"ok": True, "action": "deleted"} and A.load_draft(dr) is None
+assert call("delete", f"/me/orders/{dr}", user=620).status_code == 404
+# в кабинете бота скрытые письма не показываются
+text, _kb = B.cabinet_view(500)
+assert "ALI-9000000001" not in text and "ALI-9000000004" not in text
 
 # ── лимит запросов на человека ──
 A.USER_PER_MIN = 3

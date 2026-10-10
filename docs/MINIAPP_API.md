@@ -20,7 +20,7 @@
 | 7 | Промокод (`pr:enter`), цена со скидкой | промокоды, партнёрские коды, скидка друга, баланс, одна наибольшая скидка | **да** | `POST /promo/check`, `promo` в `POST …/pay` |
 | 8 | Оплата ЮKassa (`occ:buy`, `yk:check`) | заказ, ссылка оплаты, «Я оплатил(а)», опрос платежей | **да** | `POST …/pay`, `POST …/pay/check`; заказ тот же `orders/*.json` |
 | 9 | Оплата 0 ₽ при полной скидке | выдача без платежа | **да** | `paid:true, price:0` в ответе `pay` |
-| 10 | Тестовая оплата (`TEST_USERS`, `test:pay`) | 0 ₽ для тестовых аккаунтов | **нет** (по контракту) | API отвечает `403 test_user` — тест в боте |
+| 10 | Тестовая оплата (`TEST_USERS`, `test:pay`) | 0 ₽ для тестовых аккаунтов | **да** | `POST …/pay` у тестового аккаунта: заказ 0 ₽, `is_test`, ЮKassa не трогаем, в статистику не идёт; ответ `{paid:true, price:0, realPrice, test:true}` |
 | 11 | Оплата встроенным счётом Telegram (`send_invoice`) | если ЮKassa-магазин не подключён | **нет** | нужен чат с ботом; API отвечает `503 payment_unavailable` + `botUrl` |
 | 12 | Выдача: открытка + письмо + оценка (`occ_deliver`) | уходит в чат бота и доступно в API | **да** | `GET /orders/<id>` (`letter`, `envelopeUrl`), `GET …/card.jpg` |
 | 13 | Отправка получателю (`occ_send_options`, inline, `miniapp_share`) | ссылка-конверт `/e/<код>`, shareMessage | **да** | `POST …/send` → `envelopeUrl`, `preparedMessageId`, `shareUrl` |
@@ -58,13 +58,39 @@
 `POST /orders/<id>/pay/check`, `POST /orders/<id>/cancel`, `POST /orders/<id>/ai-card`, `GET /orders/<id>/ai-card/<jobId>`,
 `GET /orders/<id>/ai-card/<n>.jpg`, `POST /orders/<id>/send`, `POST /orders/<id>/rate`.
 
-Кабинет: `GET /me`, `GET /me/orders`, `GET/POST /me/reminders`, `DELETE /me/reminders/<id>`, `POST /me/invite`.
+Кабинет: `GET /me`, `GET /me/orders`, `DELETE /me/orders/<id>`, `POST /me/orders/clear-opened`, `GET/POST /me/reminders`, `DELETE /me/reminders/<id>`, `POST /me/invite`, `POST /me/attribution`.
 
 Статусы заказа: `draft` → `preview` → `awaiting_payment` → `delivered` (выдан после оплаты; отдельного `paid` нет, выдача мгновенная).
 
 Заказ из Mini App — те же файлы `orders/*.json`, что у бота: после оплаты выдача идёт и в чат бота (как всегда), а в API
 доступна через `GET /orders/<id>`. Черновик (до оплаты) хранится в `DATA_DIR/miniapp_drafts/<id>.json` и после «Оплатить»
 превращается в обычный заказ с тем же номером (`occ_make_order`).
+
+## 2.1. Форматы ответов (правки 10.10 вечером)
+
+Ошибки везде одинаковы: `{"error":{"code","message"}}`, при 429 ещё `retryAfter`.
+
+**Тестовая оплата** — `POST /orders/<id>/pay` у аккаунта из `TEST_USERS`:
+`200 {"paid":true,"price":0,"realPrice":199,"test":true}`. Заказ создаётся как в боте (`occ_make_order`), помечается `is_test`,
+`price_rub=0` (настоящая цена в `test_price_rub`), выдаётся через `fulfill_order` (`charge_id=test-…`), ЮKassa не вызывается,
+в статистику, финансы и рассылки заказ не идёт. Повторный вызов: `{"paid":true,"price":0,"test":true}`. Дальше `send`, `rate`, кабинет работают как у обычного заказа.
+В `GET /orders/<id>` и `GET /me/orders` у такого заказа `price` = настоящая цена, `test:true` (на экране показывать цену и пометку «тест»).
+
+**Заказы, созданные в самом боте** (черновика Mini App нет). Все ручки `/orders/<id>…` понимают и их, если заказ
+выдан (`done`) или ждёт оплаты (`pending`) и принадлежит клиенту; повод должен быть из каталога писем с открыткой.
+- `GET /orders/<id>` → то же, что для заказа из приложения: `{orderId, product, status:"delivered"|"awaiting_payment", giftFor, sign, price, cardRef, cardTitle, cardLine, previewUrl, letter (только после оплаты), locked:false, envelopeCode, envelopeUrl, opened, rating, aiCard, test}`.
+- `GET /orders/<id>/card.jpg` — чистая открытка (оплаченный заказ): по `X-Telegram-Init-Data` или по подписанной ссылке `previewUrl` (`?exp=&sig=`, час жизни). Чужому — 404, до оплаты — 404.
+- `GET /orders/<id>/card-preview.jpg?ref=` — превью с водяным знаком для заказа, ждущего оплаты.
+- Отдельный файл черновика для таких заказов не создаётся; «изменить текст» для них недоступно (`409 locked`), оплата и отмена работают.
+
+**Кабинет**
+- `GET /me/orders` → `{"items":[{orderId, product, icon, title, giftFor, status:"delivered"|"awaiting_payment"|"preview", price, test, opened, createdAt, cardRef, envelopeUrl?, previewUrl?}]}`.
+  `opened` — открыл ли получатель (есть всегда); скрытые клиентом заказы (`hidden_by_client`) и отменённые не выдаются.
+- `DELETE /me/orders/<id>` → `{"ok":true,"action":"cancelled"|"hidden"|"deleted"}`:
+  неоплаченный заказ — отмена (`cancelled`, как `cancel`); выданный — только скрыть у клиента (`hidden`: запись, деньги и учёт не трогаем,
+  ссылка-конверт получателя работает, по прямой ссылке заказ читается); черновик без заказа — удаляется (`deleted`). Чужой заказ — `404`.
+- `POST /me/orders/clear-opened` → `{"ok":true,"hidden":N}` — скрывает все выданные письма, которые получатель уже открыл (`opened_at`). Повтор: `hidden:0`.
+- В кабинете бота скрытые письма тоже не показываются в списке (в счётчиках остаются).
 
 ## 3. Защита денег и ограничений (как в боте)
 - Хвост письма до оплаты не отдаётся ни в одной ручке; чистая открытка без «превью» — только после оплаты.

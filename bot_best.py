@@ -1620,6 +1620,8 @@ def cabinet_view(chat_id):
     profile = get_client(chat_id) or {}
     orders = client_orders(chat_id)
     done = [o for o in orders if o.get("status") == "done"]
+    shown = [o for o in orders if not o.get("hidden_by_client")]   # скрытые в приложении письма в списке не показываем
+    shown_done = [o for o in done if not o.get("hidden_by_client")]
 
     lines = [
         "👤 <b>Мой кабинет</b>",
@@ -1634,11 +1636,11 @@ def cabinet_view(chat_id):
         lines.append(f"🎁 Писем с открыткой в наборе: {profile['credits']}")
     lines.append("")
 
-    if not orders:
+    if not shown:
         lines.append("Заказов пока нет. Первое письмо начинается с вопроса.")
     else:
         lines.append("<b>Мои заказы</b>")
-        for o in orders[:10]:
+        for o in shown[:10]:
             icon, label = STATUS_LABEL.get(o.get("status"), ("•", o.get("status", "")))
             meta = pain_meta(o)
             short = esc(order_summary(o, limit=40))
@@ -1656,7 +1658,7 @@ def cabinet_view(chat_id):
         kb.add(types.InlineKeyboardButton(
             f"🗑 Отменить {o['order_id']}", callback_data=f"cab:cancel:{o['order_id']}"
         ))
-    for o in [o for o in done if o.get("product") != OCC.PACK["key"]][:5]:
+    for o in [o for o in shown_done if o.get("product") != OCC.PACK["key"]][:5]:
         meta = pain_meta(o)
         kb.add(
             types.InlineKeyboardButton(

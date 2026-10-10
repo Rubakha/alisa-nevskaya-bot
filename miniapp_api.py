@@ -18,6 +18,7 @@ import io
 import json
 import os
 import re
+import secrets
 import threading
 import time
 from collections import defaultdict, deque
@@ -210,12 +211,38 @@ def load_draft(order_id):
 
 
 def save_draft(d):
+    if d.get("synthetic"):   # «черновик» собран из заказа, созданного в самом боте: отдельный файл не нужен
+        return
     d["updated_at"] = B.now_msk().isoformat()
     B.write_json(draft_path(d["order_id"]), d)
 
 
-def own_draft(order_id, user):
+def synthetic_draft(order):
+    """Заказ, созданный в самом боте (черновика нет): состояние для API берём из самого заказа."""
+    return {"order_id": order["order_id"], "synthetic": True, "chat_id": order["chat_id"], "product": order["product"],
+            "name": order.get("gift_for"), "sign": order.get("sign", ""), "tone": order.get("tone"),
+            "letter": order.get("letter_text") or "", "card_title": order.get("card_title"),
+            "card_line": order.get("card_line"), "card_ref": order.get("card_ref"),
+            "default_title": order.get("card_title") or "", "card_seen": [], "retexts": FREE_RETEXTS,
+            "wish_used": True, "promo": order.get("promo_code"), "qa": order.get("qa") or [],
+            "created_at": order.get("created_at")}
+
+
+def find_draft(order_id):
+    """Черновик Mini App или, если его нет, заказ из бота (оплаченный или ждущий оплаты)."""
     d = load_draft(order_id)
+    if d:
+        return d
+    if not SAFE_ID.match(order_id or ""):
+        return None
+    o = B.get_order(order_id)
+    if o and o.get("product") in B.OCC.PRODUCTS and o.get("status") in ("done", "pending"):
+        return synthetic_draft(o)
+    return None
+
+
+def own_draft(order_id, user):
+    d = find_draft(order_id)
     if not d or d.get("chat_id") != user["id"]:
         raise err("not_found", "Заказ не найден.", 404)
     return d
@@ -335,7 +362,8 @@ def present(d):
     out = {
         "orderId": oid, "product": d["product"], "status": status_of(d, order),
         "giftFor": d.get("name"), "sign": d.get("sign"), "tone": d.get("tone"),
-        "price": order["price_rub"] if done else q["payable"],
+        "price": ((order.get("test_price_rub") if order.get("is_test") else order["price_rub"]) if done else q["payable"]),
+        "test": bool(order and order.get("is_test")),
         "basePrice": B.OCC.PRODUCTS[d["product"]]["price"],
         "discount": ({"rub": q["discount"], "label": q["label"], "balanceUsed": q["balance_used"]} if q and
                      (q["discount"] or q["balance_used"]) else None),
@@ -700,7 +728,7 @@ def routes():
 
     @endpoint("/orders/<order_id>/card-preview.jpg", auth="sig")
     def card_preview(order_id, user):
-        d = load_draft(order_id)
+        d = find_draft(order_id)
         if not d or (user and d.get("chat_id") != user["id"]):
             raise err("not_found", "Заказ не найден.", 404)
         ref = request.args.get("ref") or d.get("card_ref")
@@ -718,7 +746,7 @@ def routes():
 
     @endpoint("/orders/<order_id>/card.jpg", auth="sig")
     def card_final(order_id, user):
-        d = load_draft(order_id)
+        d = find_draft(order_id)
         order = real_order(d) if d else None
         if not order or order.get("status") != "done" or (user and d.get("chat_id") != user["id"]):
             raise err("not_found", "Открытка станет доступна после оплаты.", 404)
@@ -741,13 +769,12 @@ def routes():
     @endpoint("/orders/<order_id>/pay", methods=("POST",))
     def pay(order_id, user):
         d = own_draft(order_id, user)
-        if B.is_test_user(user["id"]):
-            raise err("test_user", "Это тестовый аккаунт: оплату проверяй в боте.", 403)
+        test = B.is_test_user(user["id"])
         if not d.get("letter"):
             raise err("no_letter", "Сначала получи письмо.", 409)
         order = real_order(d)
         if order and order.get("status") == "done":
-            return {"paid": True, "price": order["price_rub"]}
+            return {"paid": True, "price": order["price_rub"], **({"test": True} if order.get("is_test") else {})}
         data = body()
         promo = str(data.get("promo") or d.get("promo") or "").strip()[:40] or None
         if promo and promo != d.get("promo"):
@@ -755,8 +782,8 @@ def routes():
             if not ok:
                 raise err("bad_promo", res, 400)
         sig_now = [d["letter"], promo]
-        if order and order.get("status") == "pending" and d.get("order_sig") == sig_now:
-            pass   # повторное «Оплатить» — тот же заказ
+        if order and order.get("status") == "pending" and (d.get("synthetic") or d.get("order_sig") == sig_now):
+            pass   # повторное «Оплатить» или заказ, созданный в боте, — тот же заказ
         else:
             if B.pending_count(user["id"]) >= B.MAX_PENDING and not (order and order.get("status") == "pending"):
                 other = B.pending_orders(user["id"])[0]
@@ -773,6 +800,16 @@ def routes():
                 B.save_order(order)
             save_draft(d)
             B.cb_event(user["id"], "buy", d["product"], d.get("card_ref"))
+        if test:   # тестовый аккаунт (TEST_USERS): как send_test_payment в боте — 0 ₽, ЮKassa не трогаем, в статистику не идёт
+            order["is_test"] = True
+            order.setdefault("test_price_rub", order.get("price_rub"))
+            order["price_rub"] = 0
+            B.save_order(order)
+            try:
+                B.fulfill_order(user["id"], order["order_id"], f"test-{secrets.token_hex(4)}", None)
+            except Exception as exc:
+                B.log.error("miniapp test fulfill %s: %s", order_id, exc)
+            return {"paid": True, "price": 0, "realPrice": order["test_price_rub"], "test": True}
         if order["price_rub"] <= 0:   # скидка и баланс покрыли всё
             B.notify_admin_new_order(order)
             try:
@@ -876,7 +913,7 @@ def routes():
 
     @endpoint("/orders/<order_id>/ai-card/<int:n>.jpg", auth="sig")
     def ai_card_image(order_id, n, user):
-        d = load_draft(order_id)
+        d = find_draft(order_id)
         order = real_order(d) if d else None
         path = os.path.join(B.ai_card._dir(), f"{order_id}_{n}.jpg")
         if not order or order.get("status") != "done" or (user and d.get("chat_id") != user["id"]) \
@@ -946,13 +983,15 @@ def routes():
     def me_orders(user):
         out, seen = [], set()
         for o in sorted(B.client_orders(user["id"]), key=lambda x: x.get("created_at", ""), reverse=True):
-            if o.get("product") not in B.OCC.PRODUCTS or o.get("status") == "cancelled":
+            if o.get("product") not in B.OCC.PRODUCTS or o.get("status") == "cancelled" or o.get("hidden_by_client"):
                 continue
             seen.add(o["order_id"])
             done = o.get("status") == "done"
             item = {"orderId": o["order_id"], "product": o["product"], "icon": B.OCC.PRODUCTS[o["product"]]["icon"],
                     "title": B.OCC.PRODUCTS[o["product"]]["title"], "giftFor": o.get("gift_for"),
-                    "status": "delivered" if done else "awaiting_payment", "price": o.get("price_rub"),
+                    "status": "delivered" if done else "awaiting_payment",
+                    "price": (o.get("test_price_rub") if o.get("is_test") else o.get("price_rub")),
+                    "test": bool(o.get("is_test")), "opened": bool(o.get("opened_at")),
                     "createdAt": o.get("created_at"), "cardRef": o.get("card_ref")}
             if done:
                 item.update(envelopeUrl=B.occ_web_envelope(o), opened=bool(o.get("opened_at")),
@@ -963,8 +1002,45 @@ def routes():
             if d and d.get("chat_id") == user["id"] and d["order_id"] not in seen and d.get("letter"):
                 out.append({"orderId": d["order_id"], "product": d["product"],
                             "icon": B.OCC.PRODUCTS[d["product"]]["icon"], "title": B.OCC.PRODUCTS[d["product"]]["title"],
-                            "giftFor": d.get("name"), "status": "preview", "createdAt": d.get("created_at")})
+                            "giftFor": d.get("name"), "status": "preview", "opened": False,
+                            "createdAt": d.get("created_at")})
         return {"items": out}
+
+    @endpoint("/me/orders/clear-opened", methods=("POST",))
+    def clear_opened(user):
+        """Скрыть у клиента все выданные письма, которые получатель уже открыл. Записи и деньги не трогаем."""
+        n = 0
+        for o in B.client_orders(user["id"]):
+            if o.get("status") == "done" and o.get("opened_at") and not o.get("hidden_by_client"):
+                o["hidden_by_client"] = True
+                B.save_order(o)
+                n += 1
+        return {"ok": True, "hidden": n}
+
+    @endpoint("/me/orders/<order_id>", methods=("DELETE",))
+    def delete_order(order_id, user):
+        """Неоплаченный заказ — отмена; выданный — только скрыть (ссылка-конверт у получателя работает)."""
+        order = B.get_order(order_id) if SAFE_ID.match(order_id or "") else None
+        if order and order.get("chat_id") == user["id"] and order.get("product") in B.OCC.PRODUCTS:
+            if order.get("status") == "pending":
+                order["status"] = "cancelled"
+                action = "cancelled"
+            elif order.get("status") in ("done", "cancelled"):
+                order["hidden_by_client"] = True
+                action = "hidden"
+            else:
+                raise err("not_found", "Заказ не найден.", 404)
+            B.save_order(order)
+            try:
+                os.remove(draft_path(order_id))
+            except OSError:
+                pass
+            return {"ok": True, "action": action}
+        d = load_draft(order_id)   # черновик, который ещё не стал заказом
+        if d and d.get("chat_id") == user["id"]:
+            os.remove(draft_path(order_id))
+            return {"ok": True, "action": "deleted"}
+        raise err("not_found", "Заказ не найден.", 404)
 
     @endpoint("/me/reminders")
     def reminders_list(user):
