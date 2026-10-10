@@ -13,6 +13,7 @@ os.environ["YOOKASSA_PROVIDER_TOKEN"] = "x"
 os.environ["YOOKASSA_SHOP_ID"] = ""
 os.environ["DATA_DIR"] = tempfile.mkdtemp()
 os.environ["ANTHROPIC_API_KEY"] = ""
+os.environ["APP_ONLY"] = "0"   # этот тест проверяет старое меню; режим приложения — в test_app_only.py
 
 import bot_best as B  # noqa: E402
 import calendar_reminders as C  # noqa: E402

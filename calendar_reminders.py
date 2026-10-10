@@ -328,9 +328,13 @@ def save_new(chat_id, name, kind, day, month):
 
 
 # ── сами напоминания ────────────────────────────────────────────
-def reminder_markup(write_cb, off_cb):
+def reminder_markup(write_cb, off_cb, app_params=None):
+    """Кнопка напоминания. В режиме APP_ONLY («Написать письмо <имени>») открывает приложение, иначе — сценарий бота."""
     kb = B.types.InlineKeyboardMarkup(row_width=1)
-    kb.add(B.types.InlineKeyboardButton(write_cb[0], callback_data=write_cb[1]))
+    if app_params is not None and B.app_only():
+        kb.add(B.types.InlineKeyboardButton(write_cb[0], web_app=B.types.WebAppInfo(url=B.app_url(**app_params))))
+    else:
+        kb.add(B.types.InlineKeyboardButton(write_cb[0], callback_data=write_cb[1]))
     kb.add(B.types.InlineKeyboardButton("🔕 Больше не напоминать об этом", callback_data=off_cb))
     return kb
 
@@ -351,7 +355,8 @@ def due_for(profile, today):
                     f"Хочешь, Алиса соберёт письмо с открыткой для {B.esc(d['name'])}? "
                     "Начало письма — бесплатно.")
             found.append((left, key, text, reminder_markup(
-                (f"💌 Написать письмо: {d['name'][:20]}", f"cal:write:{d['id']}"), f"cal:off:d:{d['id']}")))
+                (f"💌 Написать письмо: {d['name'][:20]}", f"cal:write:{d['id']}"), f"cal:off:d:{d['id']}",
+                {"occ": KINDS.get(d["kind"], KINDS["other"])[2], "for": d["name"][:40]})))
     for hkey in cal.get("subs", []):
         h = HOLIDAYS.get(hkey)
         if not h:
@@ -367,7 +372,7 @@ def due_for(profile, today):
                     "Если захочется сказать близкому важное словами, Алиса поможет: письмо с открыткой, "
                     "начало бесплатно.")
             found.append((left, key, text, reminder_markup(
-                ("💌 Выбрать письмо", f"cal:h:{hkey}"), f"cal:off:h:{hkey}")))
+                ("💌 Выбрать письмо", f"cal:h:{hkey}"), f"cal:off:h:{hkey}", {"occ": h["product"]})))
     found.sort(key=lambda x: x[0])
     return [(k, t, m) for _, k, t, m in found]
 

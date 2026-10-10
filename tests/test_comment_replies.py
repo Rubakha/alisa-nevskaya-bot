@@ -74,7 +74,8 @@ assert not ok(msg("", 11, ctype="photo"))
 assert not ok(msg("а" * 1001, 12))
 
 # ── порядок обработчиков: группа обсуждения — первая ──
-first = B.bot.message_handlers[0]
+first = next(h for h in B.bot.message_handlers if h["function"] is C.on_group_message)
+assert B.bot.message_handlers.index(first) < 3, "обработчик группы — среди первых"
 assert first["function"] is C.on_group_message
 assert first["filters"]["func"](msg("x", 1)) and not first["filters"]["func"](msg("x", 1, chat=500))
 

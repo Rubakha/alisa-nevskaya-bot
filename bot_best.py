@@ -436,7 +436,62 @@ def real_stats_line():
 # КЛАВИАТУРЫ
 # ─────────────────────────────────────────────────────────────
 
+def app_only():
+    """Режим «только Mini App»: клиент попадает в приложение. APP_ONLY=0 возвращает старое меню (аварийный откат)."""
+    return os.getenv("APP_ONLY", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def app_url(**params):
+    """Адрес Mini App (MINIAPP_URL) с параметрами: ref=<id друга>, occ=<повод>, for=<имя>."""
+    base = os.getenv("MINIAPP_URL", "https://alisa-letters.pages.dev/app/").strip()
+    query = urllib.parse.urlencode({k: v for k, v in params.items() if v not in (None, "")})
+    return base + (("&" if "?" in base else "?") + query if query else "")
+
+
+def app_markup(text="✉️ Написать письмо", **params):
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(types.InlineKeyboardButton(text, web_app=types.WebAppInfo(url=app_url(**params))))
+    return kb
+
+
+def ensure_menu_button(chat_id, force=False):
+    """Кнопка меню чата ведёт в приложение (на уровне чата: глобальную настройку Telegram не применяет).
+    Запоминаем в профиле, чтобы не дёргать Telegram на каждое сообщение."""
+    if not app_only():
+        return
+    url = app_url()
+    profile = get_client(chat_id)
+    if not force and profile and profile.get("app_menu") == url:
+        return
+    try:
+        bot.set_chat_menu_button(chat_id, types.MenuButtonWebApp(type="web_app", text="Письмо", web_app=types.WebAppInfo(url=url)))
+    except Exception as exc:
+        log.error("menu button %s: %s", chat_id, exc)
+        return
+    if profile is not None:
+        profile["app_menu"] = url
+        write_json(client_path(chat_id), profile)
+
+
+def drop_old_keyboard(chat_id, once=True):
+    """Убирает старую нижнюю клавиатуру клиента: пустое служебное сообщение с ReplyKeyboardRemove и сразу удаляем.
+    once — только один раз на человека (флаг в профиле); у нового клиента старой клавиатуры нет."""
+    profile = get_client(chat_id)
+    if once and (profile is None or profile.get("kb_dropped")):
+        return
+    if profile is not None:
+        profile["kb_dropped"] = True
+        write_json(client_path(chat_id), profile)
+    try:
+        msg = bot.send_message(chat_id, "🤍", reply_markup=types.ReplyKeyboardRemove())
+        bot.delete_message(chat_id, msg.message_id)
+    except Exception as exc:
+        log.debug("drop keyboard %s: %s", chat_id, exc)
+
+
 def kb_client():
+    if app_only():
+        return types.ReplyKeyboardRemove()   # вход — кнопка меню и кнопка в сообщении (initData у reply-кнопок пустой)
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     kb.add("🎀 Письмо с открыткой", "💌 Заказать письмо")
     kb.add("👤 Мой кабинет", "📖 Примеры")
@@ -569,6 +624,45 @@ def source_topic_key(param):
 VKADS_ALIASES = {"father": "family"}  # vkads_father → письмо папе
 
 
+def start_topic(param):
+    """Повод из метки /start (occ_<повод>, w_/v_<повод>, ig_/vk_/…<тема>, vkads_<повод>) или None."""
+    if param.startswith("occ_"):
+        key = param[4:]
+    elif param.startswith(("w_", "v_")):
+        key = param[2:]
+    elif param.startswith("vkads_"):
+        key = VKADS_ALIASES.get(param[6:], param[6:])
+    elif param.startswith(SOURCE_PREFIXES) and not param.startswith("ad_"):
+        key = source_topic_key(param)
+    else:
+        key = None
+    return key if key in OCC.PRODUCTS else None
+
+
+def start_in_app(chat_id, user, parts, greet, invited, referred_by, is_new=False):
+    """Режим APP_ONLY: короткое приветствие и одна кнопка в приложение. Атрибуция, реферал и скидки уже учтены выше."""
+    param = parts[1] if len(parts) == 2 else ""
+    ensure_menu_button(chat_id, force=True)
+    if is_new:   # у нового клиента старой клавиатуры нет — только помечаем
+        profile = get_client(chat_id)
+        if profile is not None:
+            profile["kb_dropped"] = True
+            write_json(client_path(chat_id), profile)
+    else:
+        drop_old_keyboard(chat_id)
+    text = (f"💌 <b>Алиса Невская</b>\n\n"
+            f"{greet} Я пишу письма к поводам — для тех, кому трудно найти слова.\n"
+            f"{invited}\n"
+            "Нажми кнопку: расскажешь про человека, а я соберу письмо и открытку 🤍")
+    bot.send_message(chat_id, text, parse_mode="HTML",
+                     reply_markup=app_markup(ref=referred_by, occ=start_topic(param)))
+    partners.offer_cabinet(chat_id)
+    if param == "pdf":   # бесплатная шпаргалка и PDF «Разговор с папой» пока живут в боте
+        send_free_pdf(chat_id)
+    elif param == "papa_pdf":
+        occ_doc_order(chat_id, user)
+
+
 @bot.message_handler(commands=["start"])
 def cmd_start(message):
     chat_id = message.chat.id
@@ -630,6 +724,17 @@ def cmd_start(message):
             invited = (f"\nТебя пригласил(а) {esc(inviter['name'])}. 💌 "
                        f"На первое письмо у тебя скидка {partners.FRIEND_DISCOUNT}% — применится сама.\n")
     invited = invited or partner_hello or ""
+
+    if app_only():
+        start_in_app(chat_id, message.from_user, parts, greet, invited, referred_by, is_new)
+        return
+    if profile.get("app_menu"):  # откат на старое меню: кнопка меню чата снова обычная
+        try:
+            bot.set_chat_menu_button(chat_id, types.MenuButtonDefault())
+            profile.pop("app_menu", None)
+            write_json(client_path(chat_id), profile)
+        except Exception as exc:
+            log.error("menu button reset %s: %s", chat_id, exc)
 
     stats = real_stats_line()
     text = (
@@ -2920,6 +3025,9 @@ def invite_friend(message):
 def help_menu(message):
     chat_id = message.chat.id
     kb = types.InlineKeyboardMarkup(row_width=1)
+    if app_only():
+        kb.add(types.InlineKeyboardButton("✉️ Написать письмо", web_app=types.WebAppInfo(url=app_url())))
+        drop_old_keyboard(chat_id)
     kb.add(types.InlineKeyboardButton("✉️ Написать в поддержку", callback_data="sup:new"))
     bot.send_message(
         chat_id,
@@ -4013,9 +4121,50 @@ sources.register(sys.modules[__name__])
 voice_flow.register(sys.modules[__name__])
 
 
+# ── режим APP_ONLY: старые кнопки и входы ведут в приложение ──────────────
+LEGACY_TEXTS = {"🎀 Письмо с открыткой", "💌 Заказать письмо", "👤 Мой кабинет", "📖 Примеры", "✨ Бесплатно",
+                "📖 Дневник Алисы", "👥 Пригласить друга", "🎁 Подарочное письмо"}
+LEGACY_ENTRY_CALLBACKS = ("occ:catalog", "cab:new", "free:letter")      # начало нового заказа в чате
+LEGACY_ENTRY_PREFIXES = ("occ:p:", "occ:go:")
+
+
+def send_app_button(chat_id, text="Всё теперь в приложении: письма, открытки, кабинет и приглашения 🤍", **params):
+    ensure_menu_button(chat_id)
+    bot.send_message(chat_id, text, reply_markup=app_markup(**params))
+
+
+@bot.message_handler(func=lambda m: app_only() and m.chat.id != ADMIN_ID and m.chat.type == "private"
+                     and m.content_type == "text" and (m.text or "") in LEGACY_TEXTS)
+def legacy_text_to_app(message):
+    """Нажали кнопку старой клавиатуры (или написали её текст) — отвечаем кнопкой приложения, сценарий не запускаем."""
+    upsert_client(message.from_user)
+    drop_old_keyboard(message.chat.id, once=False)   # нажали старую кнопку — значит клавиатура ещё на экране
+    send_app_button(message.chat.id)
+
+
+@bot.callback_query_handler(func=lambda c: app_only() and c.message is not None and c.message.chat.id != ADMIN_ID and (
+    c.data in LEGACY_ENTRY_CALLBACKS or (c.data or "").startswith(LEGACY_ENTRY_PREFIXES)))
+def legacy_entry_to_app(call):
+    """Кнопки «новое письмо» из старых сообщений открывают приложение (повод передаётся в адресе)."""
+    bot.answer_callback_query(call.id)
+    key = call.data.split(":", 2)[2] if call.data.startswith(LEGACY_ENTRY_PREFIXES) else None
+    send_app_button(call.message.chat.id, "Письмо собираем в приложении 🤍",
+                    occ=key if key in OCC.PRODUCTS else None)
+
+
+# обработчики режима — первыми, раньше старых текстов и кнопок
+bot.message_handlers.insert(0, bot.message_handlers.pop())
+bot.callback_query_handlers.insert(0, bot.callback_query_handlers.pop())
+
+
 @bot.message_handler(func=lambda m: True, content_types=["text"])
 def fallback(message):
     chat_id = message.chat.id
+    if chat_id != ADMIN_ID and app_only():
+        upsert_client(message.from_user)
+        send_app_button(chat_id, "Я отвечаю письмами, а не в переписке 🙂 Письмо с открыткой собирается в приложении 🤍\n"
+                                 "Нужна помощь — «❓ Помощь».")
+        return
     if chat_id == ADMIN_ID:
         bot.send_message(
             chat_id,
