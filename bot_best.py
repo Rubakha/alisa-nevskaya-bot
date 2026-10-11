@@ -26,6 +26,7 @@ from telebot.types import LabeledPrice, Update
 
 import calendar_reminders
 import cardbase
+import b2b
 import group_letters
 import occasions as OCC
 import partners
@@ -429,6 +430,7 @@ def kb_client():
     kb.add("👤 Мой кабинет", "📖 Примеры")
     kb.add("✨ Бесплатно", "📖 Дневник Алисы")
     kb.add("❓ Помощь", "👥 Пригласить друга")
+    kb.add("🏢 Для компаний")
     return kb
 
 
@@ -629,6 +631,8 @@ def cmd_start(message):
         send_free_pdf(chat_id)
     elif len(parts) == 2 and parts[1] == "papa_pdf":
         occ_doc_order(chat_id, message.from_user)
+    elif len(parts) == 2 and parts[1] == "b2b":  # корпоративная линейка
+        b2b.open_menu(chat_id)
     elif len(parts) == 2 and parts[1] == "occ":
         occ_open_catalog(chat_id)
     elif len(parts) == 2 and parts[1].startswith("occ_"):
@@ -1414,6 +1418,10 @@ def fulfill_order(chat_id, order_id, charge_id, email):
     if profile:
         profile["total_spent_rub"] = profile.get("total_spent_rub", 0) + order["price_rub"]
         write_json(client_path(chat_id), profile)
+
+    if order.get("product") == "b2b":  # корпоративный заказ: дальше всё ведёт b2b.py
+        b2b.on_paid(order)
+        return
 
     if order.get("product") == OCC.DOC["key"]:
         kb = types.InlineKeyboardMarkup(row_width=1)
@@ -3778,6 +3786,7 @@ def start_autobackup():
 group_letters.register(sys.modules[__name__])  # до fallback: его обработчик ловит любой текст
 calendar_reminders.register(sys.modules[__name__])
 partners.register(sys.modules[__name__])
+b2b.register(sys.modules[__name__])
 sources.register(sys.modules[__name__])
 voice_flow.register(sys.modules[__name__])
 
