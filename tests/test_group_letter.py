@@ -80,6 +80,12 @@ def cbs(markup):
             for row in markup.keyboard for b in row]
 
 
+# ── вход с сайта ?start=w_group: сразу выбор повода группового письма ──
+B.cmd_start(msg("/start w_group", 499))
+assert "Для кого письмо" in last_text(499) and "grp:occ:family" in cbs(SENT[-1][2]["reply_markup"])
+B.cmd_start(msg("/start w_family", 498))                     # обычные поводы не сломаны
+assert "Для кого письмо" not in last_text(498)
+
 # ── организатор создаёт группу ──
 B.occ_open_catalog(500)
 assert "grp:new" in cbs(SENT[-1][2]["reply_markup"])
