@@ -32,6 +32,7 @@ import envelope_anim
 import envelope_pages
 import cardbase
 import constructor
+import b2b
 import group_letters
 import occasions as OCC
 import partners
@@ -526,6 +527,7 @@ def kb_client():
     kb.add("👤 Мой кабинет", "📖 Примеры")
     kb.add("✨ Бесплатно", "📖 Дневник Алисы")
     kb.add("❓ Помощь", "👥 Пригласить друга")
+    kb.add("🏢 Для компаний")
     return kb
 
 
@@ -776,13 +778,17 @@ def cmd_start(message):
         send_free_pdf(chat_id)
     elif len(parts) == 2 and parts[1] == "papa_pdf":
         occ_doc_order(chat_id, message.from_user)
+    elif len(parts) == 2 and parts[1] == "b2b":  # корпоративная линейка
+        b2b.open_menu(chat_id)
     elif len(parts) == 2 and parts[1] == "occ":
         occ_open_catalog(chat_id)
     elif len(parts) == 2 and parts[1].startswith("occ_"):
         occ_open_product(chat_id, parts[1][4:])
     elif len(parts) == 2 and parts[1].startswith(("w_", "v_")):  # переход с сайта / из услуг VK
         key = parts[1][2:]
-        if key in OCC.PRODUCTS:
+        if key == "group":  # страница про групповое письмо
+            group_letters.open_menu(chat_id)
+        elif key in OCC.PRODUCTS:
             occ_open_product(chat_id, key)
         else:
             occ_open_catalog(chat_id)
@@ -940,7 +946,7 @@ def price_base(state):
 
 def diag_paywall_text(state):
     letter = state["letter_text"]
-    preview = letter if len(letter) <= 350 else letter[:350] + "…"
+    preview = letter if len(letter) <= 175 else letter[:175] + "…"
     q = partners.quote(state["chat_id"], price_base(state), state.get("promo"))
     lines = partners.price_lines(q)
     return (f"{esc(preview)}\n\n🔒 Дальше — продолжение письма, целиком, у тебя в чате."
@@ -1562,6 +1568,10 @@ def fulfill_order(chat_id, order_id, charge_id, email):
         profile["total_spent_rub"] = profile.get("total_spent_rub", 0) + order["price_rub"]
         write_json(client_path(chat_id), profile)
 
+    if order.get("product") == "b2b":  # корпоративный заказ: дальше всё ведёт b2b.py
+        b2b.on_paid(order)
+        return
+
     if order.get("product") == OCC.DOC["key"]:
         kb = types.InlineKeyboardMarkup(row_width=1)
         kb.add(types.InlineKeyboardButton("🎀 Письмо папе с открыткой", callback_data="occ:p:family"))
@@ -2105,9 +2115,9 @@ def cardbase_pick(chat_id, key, seen):
 
 
 def occ_masked_preview(letter):
-    """Первая половина письма читается, вторая — «матовое стекло» из ▒ (спойлер Telegram не годится:
+    """Первая четверть письма читается, остальное — «матовое стекло» из ▒ (спойлер Telegram не годится:
     он открывается одним тапом)."""
-    cut = max(220, len(letter) // 2)
+    cut = max(110, len(letter) // 4)
     head = letter[:cut].rsplit(None, 1)[0] if " " in letter[:cut] else letter[:cut]
     tail = re.sub(r"\S", "▒", letter[len(head):]).strip()
     tail = re.sub(r"\n{3,}", "\n\n", tail)
@@ -2138,7 +2148,7 @@ def occ_preview_markup(state):
 def occ_preview_text(state):
     lines = partners.price_lines(partners.quote(state.get("chat_id", 0), price_base(state), state.get("promo")))
     return (occ_masked_preview(state["letter"])
-            + "\n\n🔒 Вторая половина письма, чистая открытка без надписи «превью» "
+            + "\n\n🔒 Продолжение письма, чистая открытка без надписи «превью» "
               "и ссылка-конверт для получателя — после оплаты."
             + (f"\n\n{lines}" if lines else ""))
 
@@ -4155,6 +4165,7 @@ constructor.register(sys.modules[__name__])
 ai_card.register(sys.modules[__name__])
 calendar_reminders.register(sys.modules[__name__])
 partners.register(sys.modules[__name__])
+b2b.register(sys.modules[__name__])
 sources.register(sys.modules[__name__])
 voice_flow.register(sys.modules[__name__])
 

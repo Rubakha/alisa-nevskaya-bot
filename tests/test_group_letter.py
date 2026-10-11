@@ -80,6 +80,14 @@ def cbs(markup):
             for row in markup.keyboard for b in row]
 
 
+# ── вход с сайта ?start=w_group: сразу выбор повода группового письма ──
+os.environ["APP_ONLY"] = "0"   # аварийный режим со старым меню: в APP_ONLY вход ведёт в Mini App
+B.cmd_start(msg("/start w_group", 499))
+assert "Для кого письмо" in last_text(499) and "grp:occ:family" in cbs(SENT[-1][2]["reply_markup"])
+B.cmd_start(msg("/start w_family", 498))                     # обычные поводы не сломаны
+assert "Для кого письмо" not in last_text(498)
+os.environ.pop("APP_ONLY", None)
+
 # ── организатор создаёт группу ──
 B.occ_open_catalog(500)
 assert "grp:new" in cbs(SENT[-1][2]["reply_markup"])
