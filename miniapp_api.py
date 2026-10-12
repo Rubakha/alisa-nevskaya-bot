@@ -1282,7 +1282,9 @@ def routes():
     def delete_order(order_id, user):
         """Неоплаченный заказ — отмена; выданный — только скрыть (ссылка-конверт у получателя работает)."""
         order = B.get_order(order_id) if SAFE_ID.match(order_id or "") else None
-        if order and order.get("chat_id") == user["id"] and order.get("product") in B.OCC.PRODUCTS:
+        # неоплаченный заказ любого вида отменяем всегда: иначе «У тебя есть неоплаченное письмо» не снять
+        # (в списке неоплаченных бывают заказы старых или других продуктов, которых нет в OCC.PRODUCTS)
+        if order and order.get("chat_id") == user["id"] and (order.get("product") in B.OCC.PRODUCTS or order.get("status") == "pending"):
             if order.get("status") == "pending":
                 order["status"] = "cancelled"
                 action = "cancelled"

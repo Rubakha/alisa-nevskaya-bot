@@ -477,6 +477,11 @@ assert call("get", "/orders/ALI-9000000003").status_code == 404
 r = j(call("delete", "/me/orders/ALI-9000000002"))
 assert r == {"ok": True, "action": "cancelled"} and B.get_order("ALI-9000000002")["status"] == "cancelled"
 assert "ALI-9000000002" not in {i["orderId"] for i in j(call("get", "/me/orders"))["items"]}
+# неоплаченный заказ старого/другого продукта тоже отменяется (иначе «есть неоплаченное письмо» не снять); оплаченный такого вида — нет
+B.save_order({**bot_pend, "order_id": "ALI-9000000010", "product": "legacy_old"})
+assert j(call("delete", "/me/orders/ALI-9000000010")) == {"ok": True, "action": "cancelled"} and B.get_order("ALI-9000000010")["status"] == "cancelled"
+B.save_order({**bot_done, "order_id": "ALI-9000000011", "product": "legacy_old"})
+assert call("delete", "/me/orders/ALI-9000000011").status_code == 404, "оплаченный заказ неизвестного вида не трогаем"
 assert call("delete", "/me/orders/ALI-9000000001", user=777).status_code == 404, "чужой заказ не скрыть"
 assert call("delete", "/me/orders/ALI-9000000001", user=None).status_code == 401
 assert call("delete", "/me/orders/..%2Fx").status_code in (400, 404)
