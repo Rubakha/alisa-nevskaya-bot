@@ -4250,6 +4250,8 @@ import webfonts  # noqa: E402  свои шрифты страниц: /fonts/<и�
 webfonts.register(app)
 import miniapp_share  # noqa: E402  отправка в один тап через мини-приложение Telegram
 miniapp_share.register(app, sys.modules[__name__])
+import compat_shop  # noqa: E402  разбор совместимости пары на сайте (без Telegram), включается COMPAT_SECRET
+compat_shop.register(app, sys.modules[__name__])
 import miniapp_api  # noqa: E402  API v1 для Mini App (включается MINIAPP_API=1)
 miniapp_api.register(app, sys.modules[__name__])
 
