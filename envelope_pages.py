@@ -138,7 +138,7 @@ def closed_html(order, code, site, bot_username, image_site=None):
     return _page("Тебе письмо 💌", head, body, script)
 
 
-def open_html(order, code, animated, bot_username):
+def open_html(order, code, animated, bot_username, voice_url=None):
     """Вскрытие: печать ломается, открытка (GIF, если выбрана анимация) и письмо появляются по абзацам."""
     name, who = _names(order)
     esc = html.escape
@@ -149,8 +149,12 @@ def open_html(order, code, animated, bot_username):
                      f'{" class=" + chr(34) + "sign" + chr(34) if i == last and last > 0 and len(p) <= 60 else ""}>'
                      f'{esc(p).replace(chr(10), "<br>")}</p>'
                      for i, p in enumerate(paragraphs))   # короткая последняя строка — подпись: Bad Script
+    voice_block = (f'<div class="reveal" style="animation-delay:2.4s;margin-top:20px;text-align:center">'
+                   f'<audio controls preload="none" src="{esc(voice_url)}" style="width:100%;max-width:420px"></audio>'
+                   f'<p style="margin:6px 0 0;font-size:14px;opacity:.75">🎙 Письмо читает Алиса</p></div>') if voice_url else ""
     body = (f'<div class="stage"><div class="seal">А</div><div class="half h1"></div><div class="half h2"></div></div>'
             f'<img class="card reveal" style="animation-delay:1.7s" src="{img}" alt="Открытка">'
+            f'{voice_block}'
             f'<div class="l" style="margin-top:28px">{letter}</div>'
             f'<p class="f reveal" style="animation-delay:{4 + len(paragraphs) * 0.7:.1f}s">Это письмо собрала Алиса Невская — '
             'цифровая героиня проекта «Когда трудно сказать важное — здесь находятся слова». Захочется ответить так же — '

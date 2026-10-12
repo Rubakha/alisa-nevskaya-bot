@@ -4,7 +4,7 @@
 import hashlib
 import hmac
 import json
-import os
+import os
 os.environ["ENVELOPE_BASE"] = "off"  # старое поведение: ссылки на адрес бота; короткий адрес по умолчанию проверяется отдельно
 import sys
 import tempfile
@@ -169,3 +169,18 @@ op = client.get(f"/e/{code}/open").get_data(as_text=True)
 assert op.count('<p style="animation-delay') == 3 and 'class="sign"' in op, "подпись письма — Bad Script (.sign)"
 assert "font-family:'Playfair Display'" in op and "Bad Script" in op
 print("OK: webfonts")
+
+# ── голос письма на странице получателя ──
+assert client.get(f"/e/{code}.mp3").status_code == 404, "нет озвучки — нет файла"
+assert "<audio" not in op, "плеер показываем только если озвучка записана"
+vdir = os.path.join(os.environ["DATA_DIR"], "voice")
+os.makedirs(vdir, exist_ok=True)
+with open(os.path.join(vdir, f"{order['order_id']}.mp3"), "wb") as f:
+    f.write(b"ID3" + bytes(2000))
+mp3 = client.get(f"/e/{code}.mp3")
+assert mp3.status_code == 200 and mp3.mimetype == "audio/mpeg"
+assert client.get(f"/e/{code}.mp3", headers={"Range": "bytes=0-99"}).status_code == 206, "Range нужен для iPhone"
+op2 = client.get(f"/e/{code}/open").get_data(as_text=True)
+assert f'<audio controls preload="none" src="' in op2 and f"/e/{code}.mp3" in op2, "плеер голоса на странице вскрытия"
+assert client.get("/e/nonexistent.mp3").status_code == 404
+print("OK: envelope voice")

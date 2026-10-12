@@ -4307,7 +4307,9 @@ def envelope_open(code):
             log.error("envelope notify %s: %s", order["order_id"], exc)
     spec = postcards.parse_spec(order.get("card_ref"))
     animated = bool(spec and spec.get("anim", "none") != "none")
-    return envelope_pages.open_html(order, code, animated, BOT_USERNAME)
+    has_voice = os.path.exists(os.path.join(DATA_DIR, "voice", f"{order['order_id']}.mp3"))
+    voice_url = f"{site_pages.SITE_URL}/e/{code}.mp3" if has_voice else None   # озвучка письма (voice_flow.deliver кладёт mp3 в data/voice)
+    return envelope_pages.open_html(order, code, animated, BOT_USERNAME, voice_url=voice_url)
 
 
 @app.route("/e/<code>.gif", methods=["GET"])
@@ -4334,6 +4336,17 @@ def envelope_card(code):
     if not order:
         return "", 404
     return occ_postcard(order), 200, {"Content-Type": "image/jpeg", "Cache-Control": "private, max-age=86400"}
+
+
+@app.route("/e/<code>.mp3", methods=["GET"])
+def envelope_voice(code):
+    """Голос письма для страницы вскрытия (с поддержкой Range, чтобы играло на iPhone)."""
+    from flask import send_file
+    order = envelope_order(code)
+    path = os.path.join(DATA_DIR, "voice", f"{order['order_id']}.mp3") if order else ""
+    if not path or not os.path.exists(path):
+        return "", 404
+    return send_file(path, mimetype="audio/mpeg", conditional=True, max_age=3600)
 
 
 @app.route("/pv/<token>.jpg", methods=["GET"])
