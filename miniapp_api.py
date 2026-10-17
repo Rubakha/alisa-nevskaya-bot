@@ -303,7 +303,7 @@ def checkout(user, order, data):
         raise err("payment_unavailable", "Оплата в приложении сейчас недоступна — оплати в боте.", 503,
                   botUrl=f"https://t.me/{B.BOT_USERNAME}")
     email = str(data.get("email") or "").strip()[:120] or order.get("email") or \
-        (B.get_client(user["id"]) or {}).get("email")
+        (B.get_client(user["id"]) or {}).get("email") or (web_auth.email_of(user["id"]) if web_auth.is_web(user) else "")
     if B.YOOKASSA_RECEIPT and not (email and B.EMAIL_RE.match(email)):
         raise err("email_required", "Укажи почту — на неё придёт чек.", 400)
     try:
@@ -1085,6 +1085,9 @@ def routes():
             d["promo"] = promo
             order = B.occ_make_order(user["id"], tg_user(user), {**d, "qa": [tuple(x) for x in d["qa"]],
                                                                  "promo": promo, "price": base_price(d)})
+            if web_auth.is_web(user):
+                order["channel"] = "web"   # выдача без Telegram: bot_best.fulfill_order → web_auth.on_paid
+                B.save_order(order)
             d["order_sig"] = sig_now
             if d.get("source"):
                 order["source"] = d["source"]   # отчёт /sources считает заказы по этой метке

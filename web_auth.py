@@ -29,6 +29,7 @@ CODES_PER_HOUR = 5
 TOKEN_TTL = 60 * 86400
 EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,190}\.[^@\s.]{2,24}$")
 LOCK = threading.RLock()
+NL = chr(10)
 
 
 def _dir():
@@ -227,3 +228,18 @@ def register(A, B):
                 sessions.pop(sid, None)
                 _save("sessions.json", sessions)
         return {"ok": True}
+
+
+def on_paid(B, order):
+    """Заказ гостя оплачен: письмо открывается на сайте (ручки заказа отдают полный текст после оплаты),
+    на почту уходит ссылка. Telegram не трогаем."""
+    email = order.get("email") or email_of(order.get("chat_id", 0))
+    if not email:
+        B.log.warning("web on_paid %s: нет e-mail", order.get("order_id"))
+        return False
+    base = os.getenv("MINIAPP_RETURN_URL", "https://alisa-letters.pages.dev").rstrip("/")
+    link = f"{base}/pay/return/?paid={order['order_id']}"
+    text = NL.join(["Оплата прошла. Твоё письмо готово.", "", "Открой его: " + link, "",
+                    "Если сайт попросит войти, введи почту и код из письма.", "",
+                    "Алиса Невская, цифровой персонаж на основе ИИ"])
+    return send_mail(B, email, "Твоё письмо готово", text)

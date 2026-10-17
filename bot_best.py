@@ -1563,6 +1563,15 @@ def fulfill_order(chat_id, order_id, charge_id, email):
         notify_admin_paid(order)
         return
 
+    if order.get("channel") == "web":  # гость сайта без Telegram: письмо на сайте, на почту уходит ссылка
+        import web_auth
+        try:
+            web_auth.on_paid(sys.modules[__name__], order)
+        except Exception as exc:
+            log.error("web deliver %s: %s", order_id, exc)
+        notify_admin_paid(order)
+        return
+
     profile = get_client(chat_id)
     if profile:
         profile["total_spent_rub"] = profile.get("total_spent_rub", 0) + order["price_rub"]

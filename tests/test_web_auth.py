@@ -112,5 +112,21 @@ tok3 = post("/auth/email/verify", {"email": "other@example.com", "code": last_co
 r = client.get(API + f"/orders/{oid}", headers={"Authorization": "Bearer " + tok3})
 check("чужой гость заказ не видит", r.status_code in (403, 404))
 
+sent = []
+B.bot.send_message = lambda *a, **k: sent.append(a)
+B.bot.send_document = B.bot.send_photo = B.bot.send_message
+B.notify_admin_paid = lambda order: None
+oid2 = B.new_order_id()
+guest_id = W.account_for("katya@example.com")["id"]
+B.save_order({"order_id": oid2, "chat_id": guest_id, "status": "pending", "price_rub": 199, "product": "birthday",
+              "channel": "web", "email": "katya@example.com", "letter_text": "Привет"})
+B.fulfill_order(guest_id, oid2, "ch-1", "katya@example.com")
+o = B.get_order(oid2)
+check("оплата гостя: заказ done", o["status"] == "done")
+check("оплата гостя: в Telegram ничего не шлём", not sent)
+with open(os.path.join(os.environ["DATA_DIR"], "web_accounts", "outbox.jsonl"), encoding="utf-8") as f:
+    mail = json.loads(f.readlines()[-1])
+check("оплата гостя: ссылка ушла на почту", mail["to"] == "katya@example.com" and oid2 in mail["text"])
+
 print(f"\n{sum(OK)}/{len(OK)}")
 sys.exit(0 if all(OK) else 1)
