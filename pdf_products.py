@@ -9,6 +9,9 @@ fulfill_order -> отправка файла из assets/. Своей оплат
   PDF_QUESTIONS_PRICE_RUB цена «20 вопросов», ₽ (по умолчанию 199)
   PDF_LETTERS_PRICE_RUB   цена «10 писем», ₽ (по умолчанию 249)
   PDF_FOLLOWUP            0 = не слать мягкое сообщение «теперь напиши письмо» после выдачи файла (по умолчанию шлём)
+Набор «Для мамы» (письмо + открытка + два PDF одним платежом) живёт в конце файла и включается отдельно:
+  MOM_SET=1               включить набор (по умолчанию ВЫКЛЮЧЕНО: кнопок нет, API отвечает enabled=false)
+  MOM_SET_PRICE_RUB       цена набора, ₽ (по умолчанию 590)
 Подключается в bot_best.py: pdf_products.register(sys.modules[__name__]).
 """
 import os
@@ -98,6 +101,8 @@ def of_order(order):
 def item_title(order):
     """Название позиции для окна оплаты и чека (без «Письмо от Алисы»)."""
     p = of_order(order)
+    if not p and is_mom(order):
+        return "Набор «Для мамы»: письмо и два гида"
     return p["short"] if p else None
 
 
@@ -218,11 +223,131 @@ def again_buttons(orders):
     """Кнопки «скачать ещё раз» для кабинета: по одной на оплаченный PDF-заказ."""
     out = []
     for o in orders:
+        if is_mom(o) and o.get("status") == "done":
+            out.append(types.InlineKeyboardButton("📥 Скачать два гида из набора «Для мамы»",
+                                                  callback_data=f"pdfp:mom:{o['order_id']}"))
+            continue
         p = of_order(o)
         if p and o.get("status") == "done":
             out.append(types.InlineKeyboardButton(f"📥 Скачать ещё раз: {p['short']}"[:60],
                                                   callback_data=f"pdfp:again:{o['order_id']}"))
     return out
+
+
+# ── Набор «Для мамы» (MOM_SET=1) ─────────────────────────────────────────────────
+# Письмо про маму идёт обычным потоком повода «family» (вопросы, превью, открытка), но цена одна на всё:
+# state["price"] = цена набора, state["bundle"] = "mom_set". Заказ остаётся письмом (product="family"),
+# в нём order["bundle"]="mom_set"; после оплаты fulfill_order выдаёт письмо с открыткой как обычно и следом два PDF.
+MOM_KEY = "mom_set"
+MOM_PRICE = 590
+MOM_OCCASION = "family"
+MOM_FILES = ("pdf_letters", "pdf_questions")   # порядок выдачи
+
+
+def mom_enabled():
+    return os.getenv("MOM_SET", "").strip() == "1"
+
+
+def mom_price():
+    try:
+        return max(1, int(os.getenv("MOM_SET_PRICE_RUB", str(MOM_PRICE))))
+    except ValueError:
+        return MOM_PRICE
+
+
+def is_mom(order):
+    return (order or {}).get("bundle") == MOM_KEY
+
+
+def mom_letter_price():
+    return B.OCC.PRODUCTS[MOM_OCCASION]["price"]
+
+
+def mom_info():
+    """Состав и честная цена. regular: сумма действующих цен тех же вещей по отдельности (PDF с ценой 0 считается за 0);
+    savings только если набор дешевле, иначе выгоду не обещаем."""
+    items = [{"key": "letter", "title": "Письмо про маму с открыткой и ссылкой-конвертом", "price": mom_letter_price()}]
+    for k in MOM_FILES:
+        items.append({"key": k, "title": PRODUCTS[k]["short"] + " (PDF)", "price": price(k), "pdf": True})
+    regular = sum(i["price"] for i in items)
+    p = mom_price()
+    return {"key": MOM_KEY, "title": "Набор «Для мамы»", "price": p, "regularPrice": regular,
+            "savings": max(0, regular - p), "items": items, "enabled": mom_enabled()}
+
+
+def mom_text():
+    """Страница набора в боте: состав, цены частей и итог без накрутки."""
+    info = mom_info()
+    lines = [f"🎁 <b>{info['title']}</b> · {info['price']}₽", "",
+             "Всё, чтобы сказать маме важное, в одном наборе:",
+             "✍️ письмо про твою маму: по твоим деталям, не шаблон",
+             "🖼 открытка с её именем и ссылка-конверт: мама вскроет письмо сама",
+             f"📘 «{PRODUCTS['pdf_letters']['short']}» (PDF)",
+             f"📗 «{PRODUCTS['pdf_questions']['short']}» (PDF)", ""]
+    parts = " + ".join(f"«{i['title'].split(' (')[0]}» {i['price']}₽" if i.get("pdf") else f"письмо {i['price']}₽"
+                       for i in info["items"])
+    if info["savings"] > 0:
+        lines.append(f"Отдельно: {parts} = {info['regularPrice']}₽. В наборе {info['price']}₽, выгода {info['savings']}₽.")
+    else:
+        lines.append(f"Отдельно: {parts} = {info['regularPrice']}₽.")
+    lines += ["", "Начало письма и превью открытки видно до оплаты. Платишь один раз, оба PDF приходят файлами следом за письмом."]
+    return "\n".join(lines)
+
+
+def mom_markup():
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(types.InlineKeyboardButton(f"✍️ Собрать набор · {mom_price()}₽", callback_data="momset:go"))
+    kb.add(types.InlineKeyboardButton(f"✉️ Только письмо · {mom_letter_price()}₽", callback_data=f"occ:p:{MOM_OCCASION}"))
+    kb.add(types.InlineKeyboardButton("↩️ Все письма", callback_data="occ:catalog"))
+    return kb
+
+
+def mom_button(kb):
+    """Кнопка набора в каталоге поводов и на странице «Маме, папе, бабушке»; MOM_SET выключен: ничего."""
+    if mom_enabled():
+        kb.add(types.InlineKeyboardButton(f"🎁 Набор «Для мамы» {mom_price()} ₽ (письмо, открытка, два гида)",
+                                          callback_data="momset:info"))
+
+
+def mom_state_extra():
+    """Что добавить в состояние диалога письма, чтобы цена и выдача стали наборными."""
+    return {"price": mom_price(), "bundle": MOM_KEY}
+
+
+def mom_files(order):
+    """Для API: файлы набора оплаченного заказа (ключ, название); ссылки подписывает miniapp_api."""
+    if not is_mom(order) or order.get("status") != "done":
+        return []
+    return [{"key": k, "title": PRODUCTS[k]["short"]} for k in MOM_FILES]
+
+
+def deliver_mom(chat_id, order):
+    """Два PDF файлами в чат после письма и открытки. Сбой одного файла не мешает второму; админу итог."""
+    sent = []
+    for k in MOM_FILES:
+        cap = ("🎁 Из набора «Для мамы»: " + PRODUCTS[k]["short"] + " 🤍\n"
+               + ("Начни с одной фразы: «Я заметил, что ты всегда…»" if k == "pdf_letters"
+                  else "Начни с одного вечера и двух-трёх вопросов. Остальные подождут."))
+        try:
+            with open(file_path(k), "rb") as f:
+                B.bot.send_document(chat_id, f, caption=cap)
+            sent.append(k)
+        except Exception as exc:
+            B.log.error("mom set file %s %s: %s", k, order.get("order_id"), exc)
+    if len(sent) < len(MOM_FILES):
+        B.bot.send_message(chat_id, "Оплата прошла, но часть файлов не отправилась. Напиши в «❓ Помощь», пришлю вручную. "
+                                    f"Номер: <code>{order['order_id']}</code>", parse_mode="HTML")
+    try:
+        order["bundle_files_at"] = B.now_msk().isoformat()
+        order["bundle_files_sent"] = sent
+        B.save_order(order)
+        if B.ADMIN_ID:
+            B.safe_send(B.ADMIN_ID, f"🎁 Набор «Для мамы»: {len(sent)} из {len(MOM_FILES)} PDF выданы · "
+                                    f"{order.get('price_rub', 0)} ₽ · <code>{order['order_id']}</code>"
+                        + ("" if len(sent) == len(MOM_FILES) else " · ⚠️ часть файлов не отправилась"))
+    except Exception as exc:
+        B.log.error("mom set notify %s: %s", order.get("order_id"), exc)
+    return sent
 
 
 def register(bot_module):
@@ -234,6 +359,16 @@ def register(bot_module):
         chat_id = call.message.chat.id
         B.bot.answer_callback_query(call.id)
         parts = call.data.split(":", 2)
+        if len(parts) == 3 and parts[1] == "mom":   # повторная выдача двух PDF владельцу оплаченного набора
+            order = B.get_order(parts[2])
+            if order and order.get("chat_id") == chat_id and order.get("status") == "done" and is_mom(order):
+                for k in MOM_FILES:
+                    try:
+                        with open(file_path(k), "rb") as f:
+                            B.bot.send_document(chat_id, f, caption=f"📥 «{PRODUCTS[k]['short']}» 🤍")
+                    except OSError as exc:
+                        B.log.error("mom resend %s: %s", order["order_id"], exc)
+            return
         if len(parts) == 3 and parts[1] == "again":
             order = B.get_order(parts[2])
             if not order or order.get("chat_id") != chat_id or order.get("status") != "done" or not of_order(order):

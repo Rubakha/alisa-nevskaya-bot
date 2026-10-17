@@ -1140,6 +1140,8 @@ def order_description(order):
         return f"3 письма с открыткой, без срока. Заказ {order_id}."
     if PDFP.of_order(order):
         return PDFP.invoice_description(order)
+    if PDFP.is_mom(order):
+        return f"Письмо, открытка и два PDF-гида, сразу после оплаты. Заказ {order_id}."
     if order.get("product") == OCC.DOC["key"]:
         return f"PDF «Разговор с папой», сразу после оплаты. Заказ {order_id}."
     if order.get("product"):
@@ -1169,7 +1171,7 @@ def send_order_invoice(chat_id, order):
             invoice_payload=order_id,
             provider_token=YOOKASSA_PROVIDER_TOKEN,
             currency="RUB",
-            prices=[LabeledPrice(label="PDF" if PDFP.of_order(order) else "Письмо", amount=order["price_rub"] * 100)],  # в копейках
+            prices=[LabeledPrice(label="PDF" if PDFP.of_order(order) else ("Набор" if PDFP.is_mom(order) else "Письмо"), amount=order["price_rub"] * 100)],  # в копейках
             need_email=True,
             send_email_to_provider=True,  # ЮKassa требует чек 54-ФЗ
         )
@@ -1628,6 +1630,11 @@ def fulfill_order(chat_id, order_id, charge_id, email):
                                   + (f"Чек придёт на {esc(order['email'])}" if order.get("email") else ""),
                          parse_mode="HTML")
         occ_deliver(chat_id, order)
+        if PDFP.is_mom(order):  # набор «Для мамы»: следом за письмом и открыткой два PDF
+            try:
+                PDFP.deliver_mom(chat_id, order)
+            except Exception as exc:
+                log.error("mom set deliver %s: %s", order_id, exc)
         notify_admin_paid(order)
         return
 
@@ -1930,6 +1937,7 @@ def occ_catalog_markup():
     kb.add(types.InlineKeyboardButton(
         f"{OCC.DOC['icon']} {OCC.DOC['title']} · {OCC.DOC['price']}₽", callback_data="occ:doc"))
     PDFP.catalog_buttons(kb)  # «20 вопросов» и «10 писем» — только если PDF_PRODUCTS=1
+    PDFP.mom_button(kb)  # «Набор «Для мамы»» — только если MOM_SET=1
     voice_flow.catalog_button(kb)  # «Голосовое письмо» — только если настроен ElevenLabs
     kb.add(types.InlineKeyboardButton(
         f"👥 Письмо от всех нас · {group_letters.GROUP_PRICE}₽", callback_data="grp:new"))
@@ -1988,6 +1996,8 @@ def occ_open_product(chat_id, key, call=None):
         return occ_open_catalog(chat_id)
     kb = types.InlineKeyboardMarkup(row_width=1)
     kb.add(types.InlineKeyboardButton("✍️ Начать", callback_data=f"occ:go:{key}"))
+    if key == PDFP.MOM_OCCASION:
+        PDFP.mom_button(kb)  # набор «Для мамы»: письмо + открытка + два PDF (MOM_SET=1)
     kb.add(types.InlineKeyboardButton("↩️ Все письма", callback_data="occ:catalog"))
     if call:
         safe_edit(call, occ_product_text(key), kb)
@@ -2018,6 +2028,11 @@ def occ_go(call):
     chat_id = call.message.chat.id
     key = call.data.split(":", 2)[2]
     bot.answer_callback_query(call.id)
+    occ_begin(chat_id, key)
+
+
+def occ_begin(chat_id, key, extra=None):
+    """Старт анкеты письма. extra: поля состояния для набора (цена и bundle)."""
     if key not in OCC.PRODUCTS:
         return occ_open_catalog(chat_id)
     if pending_count(chat_id) >= MAX_PENDING:
@@ -2028,11 +2043,25 @@ def occ_go(call):
             f"Заказ <code>{pending['order_id']}</code>\n\nМожно оплатить его или отменить.",
             parse_mode="HTML", reply_markup=pending_markup(pending["order_id"]))
         return
-    STATES[chat_id] = {"step": "occ_q", "product": key, "idx": 0, "qa": [], "data": {}}
+    STATES[chat_id] = {"step": "occ_q", "product": key, "idx": 0, "qa": [], "data": {}, **(extra or {})}
     p = OCC.PRODUCTS[key]
-    bot.send_message(chat_id, f"{p['icon']} Пишем: <b>{p['title']}</b>. Поехали 🤍",
+    title = "Набор «Для мамы»: письмо про маму" if (extra or {}).get("bundle") else p["title"]
+    bot.send_message(chat_id, f"{p['icon']} Пишем: <b>{title}</b>. Поехали 🤍",
                      parse_mode="HTML")
     occ_ask(chat_id)
+
+
+@bot.callback_query_handler(func=lambda c: (c.data or "").startswith("momset:"))
+def momset_cb(call):
+    """Набор «Для мамы»: страница состава и старт анкеты с ценой набора. Флаг MOM_SET выключен: молчим."""
+    chat_id = call.message.chat.id
+    bot.answer_callback_query(call.id)
+    if not PDFP.mom_enabled():
+        return
+    if call.data == "momset:info":
+        safe_edit(call, PDFP.mom_text(), PDFP.mom_markup())
+    elif call.data == "momset:go":
+        occ_begin(chat_id, PDFP.MOM_OCCASION, PDFP.mom_state_extra())
 
 
 def occ_ask(chat_id):
@@ -2151,7 +2180,7 @@ def occ_masked_preview(letter):
 
 def occ_preview_markup(state):
     p = OCC.PRODUCTS[state["product"]]
-    credits = 0 if state.get("group") or state.get("voice") else (get_client(state.get("chat_id", 0)) or {}).get("credits", 0)
+    credits = 0 if state.get("group") or state.get("voice") or state.get("bundle") else (get_client(state.get("chat_id", 0)) or {}).get("credits", 0)
     kb = types.InlineKeyboardMarkup(row_width=1)
     if credits:
         kb.add(types.InlineKeyboardButton(f"🎁 Забрать по набору (осталось {credits})",
@@ -2175,6 +2204,8 @@ def occ_preview_text(state):
     return (occ_masked_preview(state["letter"])
             + "\n\n🔒 Продолжение письма, чистая открытка без надписи «превью» "
               "и ссылка-конверт для получателя — после оплаты."
+            + ("\n\n🎁 В набор «Для мамы» входят ещё два PDF: «10 писем, которые стоит написать близким» "
+               "и «20 вопросов маме и папе». Они придут файлами следом за письмом." if state.get("bundle") else "")
             + (f"\n\n{lines}" if lines else ""))
 
 
@@ -2348,6 +2379,8 @@ def occ_make_order(chat_id, user, state, status="pending", price=None):
         "email": None,
         "rating": None,
     }
+    if state.get("bundle") == PDFP.MOM_KEY:
+        order["bundle"] = PDFP.MOM_KEY  # набор «Для мамы»: после письма и открытки выдаём два PDF
     if calendar_reminders.is_from_reminder(chat_id):
         order["from_reminder"] = True  # человек пришёл с напоминания календаря (метрика)
     if price is None:  # обычная покупка: скидки (одна, наибольшая) и баланс; набор/бесплатно — без них
@@ -2388,7 +2421,7 @@ def occ_credit(call):
     state = STATES.get(chat_id) or {}
     profile = get_client(chat_id) or {}
     bot.answer_callback_query(call.id)
-    if state.get("step") != "occ_paywall" or profile.get("credits", 0) < 1 or state.get("group") or state.get("voice"):
+    if state.get("step") != "occ_paywall" or profile.get("credits", 0) < 1 or state.get("group") or state.get("voice") or state.get("bundle"):
         safe_edit(call, f"Не получилось — начни заново: «{OCC_BUTTON}».")
         return
     profile["credits"] -= 1
