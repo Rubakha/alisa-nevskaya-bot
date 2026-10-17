@@ -223,6 +223,12 @@ python bot_best.py          # polling + Flask на порту STATS_PORT (по �
 - `GET /doc/<orderId>` → `{"status":"awaiting_payment|delivered","downloadUrl"?}`; `GET /doc/<orderId>/file.pdf` — файл (`application/pdf`, заголовок или подпись), до оплаты `404`.
   После оплаты файл также уходит в чат бота (как сейчас). Ссылка на скачивание живёт час, новую выдаёт `GET /doc/<orderId>`.
 
+### 7.4a. Набор «Для мамы» (590 ₽, флаг `MOM_SET=1`, по умолчанию выключен)
+
+- `GET /momset` (публичная) → `{"enabled","key":"mom_set","title","price":590,"regularPrice":647,"savings":57,"items":[{"key":"letter|pdf_letters|pdf_questions","title","price"}]}`. `regularPrice` — сумма действующих цен частей по отдельности, `savings` > 0 только если набор дешевле (если «20 вопросов» бесплатны, выгоду не показываем). `enabled:false` — сайт блок не рисует.
+- `POST /orders` с `"product":"family","bundle":"mom_set"` → обычный черновик письма, но цена одна на всё (`price`/`basePrice` = 590). При выключенном флаге или другом поводе: `409 bundle_unavailable`. Озвучка и оплата кредитом набора 3 письма к такому заказу не применяются (`creditsAvailable:0`, `409 credit_not_allowed`/`voice_not_allowed`).
+- Дальше всё как у письма: `preview`, `pay`, `pay/check`. В `GET /orders/<id>`: `bundle:"mom_set"`, после оплаты ещё `bonusFiles:[{"key","title","url"}]` (подписанные ссылки, час) на `GET /orders/<id>/bundle/<pdf_letters|pdf_questions>.pdf` (до оплаты и чужому `404`). Пользователю Telegram те же два файла приходят в чат; гостю сайта только по этим ссылкам (на почту уходит ссылка на страницу возврата).
+
 ### 7.5. Поддержка
 
 - `POST /support` `{"topic":"payment|letter|app|other","text":"…"}` (text 5–1000 знаков) → `{"ticketId":"T-…","status":"sent"}`.
