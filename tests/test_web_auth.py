@@ -152,5 +152,46 @@ with open(os.path.join(os.environ["DATA_DIR"], "web_accounts", "outbox.jsonl"), 
     mail = json.loads(f.readlines()[-1])
 check("оплата гостя: ссылка ушла на почту", mail["to"] == "katya@example.com" and oid2 in mail["text"])
 
+
+# Unisender Go: отправка по API (сеть подменена), ключ берётся из окружения и не попадает в тело
+import types as _types
+import urllib.request as _ur
+
+_calls = []
+
+
+class _Resp:
+    def read(self):
+        return b'{"status":"success"}'
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def _fake_urlopen(req, timeout=0):
+    _calls.append((req.full_url, dict(req.header_items()), json.loads(req.data.decode("utf-8"))))
+    return _Resp()
+
+
+_orig_urlopen = _ur.urlopen
+_ur.urlopen = _fake_urlopen
+os.environ["MAIL_BACKEND"] = "unisender"
+os.environ["UNISENDER_API_KEY"] = "TESTKEY"
+try:
+    assert W.send_mail(B, "a@b.ru", "Код входа", "Твой код 123456") is True
+finally:
+    _ur.urlopen = _orig_urlopen
+    os.environ.pop("MAIL_BACKEND", None)
+    os.environ.pop("UNISENDER_API_KEY", None)
+url, hdrs, body = _calls[0]
+assert url.endswith("/email/send.json") and hdrs.get("X-api-key") == "TESTKEY", (url, hdrs)
+assert body["message"]["recipients"] == [{"email": "a@b.ru"}] and body["message"]["from_email"] == "hello@alisanevskaya.ru"
+assert "TESTKEY" not in json.dumps(body)
+print("OK: unisender send")
+
+
 print(f"\n{sum(OK)}/{len(OK)}")
 sys.exit(0 if all(OK) else 1)

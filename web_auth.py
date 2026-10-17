@@ -149,9 +149,36 @@ def user_from_request(B, request):
 
 
 # ── почта ────────────────────────────────────────────────────────
+def _unisender_send(to, subject, text):
+    """Unisender Go по API: POST {base}/email/send.json, ключ в X-API-KEY. Ключ только из окружения, в лог не пишется."""
+    import urllib.request
+
+    base = os.getenv("UNISENDER_BASE", "https://go2.unisender.ru/ru/transactional/api/v1").rstrip("/")
+    body = {"message": {
+        "recipients": [{"email": to}],
+        "subject": subject,
+        "from_email": os.getenv("MAIL_FROM", "hello@alisanevskaya.ru"),
+        "from_name": os.getenv("MAIL_FROM_NAME", "Алиса Невская"),
+        "body": {"plaintext": text},
+        "track_links": 0, "track_read": 0,
+    }}
+    req = urllib.request.Request(
+        f"{base}/email/send.json", data=json.dumps(body).encode("utf-8"), method="POST",
+        headers={"X-API-KEY": os.getenv("UNISENDER_API_KEY", ""), "Content-Type": "application/json", "Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        return json.loads(r.read().decode("utf-8")).get("status") == "success"
+
+
 def send_mail(B, to, subject, text):
-    """stub: пишет в outbox.jsonl (без отправки); smtp: реальная отправка. True при успехе."""
-    if os.getenv("MAIL_BACKEND", "stub").lower() == "smtp":
+    """stub: пишет в outbox.jsonl (без отправки); smtp / unisender: реальная отправка. True при успехе."""
+    mode = os.getenv("MAIL_BACKEND", "stub").lower()
+    if mode == "unisender":
+        try:
+            return _unisender_send(to, subject, text)
+        except Exception as exc:
+            B.log.error("web_auth mail unisender: %s", type(exc).__name__)
+            return False
+    if mode == "smtp":
         msg = EmailMessage()
         msg["From"] = os.getenv("MAIL_FROM", os.getenv("MAIL_SMTP_USER", ""))
         msg["To"] = to
