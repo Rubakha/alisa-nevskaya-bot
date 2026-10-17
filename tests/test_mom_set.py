@@ -1,4 +1,5 @@
-"""Набор «Для мамы» (письмо + открытка + два PDF, 590 ₽): флаг, кнопки, цена, оплата одним платежом, выдача, API сайта.
+"""Набор «Для мамы» (2 письма с открыткой + PDF «10 писем» + «20 вопросов» в подарок, 590 ₽): флаг, кнопки, цена,
+оплата одним платежом, кредиты на письма, выдача PDF, API сайта. Устроен как набор «3 письма» (кредиты).
 Запуск: python tests/test_mom_set.py (сеть и платные API не нужны)"""
 import hashlib
 import hmac
@@ -20,14 +21,13 @@ os.environ["DATA_DIR"] = tempfile.mkdtemp()
 os.environ["ANTHROPIC_API_KEY"] = ""
 os.environ["APP_ONLY"] = "0"
 os.environ["MINIAPP_API"] = "1"
-os.environ.pop("MOM_SET", None)
-os.environ.pop("MOM_SET_PRICE_RUB", None)
-os.environ.pop("PDF_PRODUCTS", None)
-os.environ.pop("YOOKASSA_RECEIPT", None)
+for k in ("MOM_SET", "MOM_SET_PRICE_RUB", "PDF_PRODUCTS", "YOOKASSA_RECEIPT", "PDF_QUESTIONS_PRICE_RUB"):
+    os.environ.pop(k, None)
 
 import bot_best as B  # noqa: E402
 import miniapp_api as A  # noqa: E402
 import pdf_products as P  # noqa: E402
+import web_auth  # noqa: E402
 
 TOKEN = os.environ["TG_BOT_TOKEN"]
 API = "/api/v1"
@@ -85,9 +85,18 @@ def docs():
     return [s for s in SENT if s[0] == "send_document"]
 
 
-def family_questions(chat=500):
-    """Проходит анкету «Маме, папе, бабушке» до экрана оплаты."""
-    for a in ["Лена", "мама", "пирог с вишней по воскресеньям", "за то, что всегда ждала", ]:
+def handler(name):
+    for h in B.bot.callback_query_handlers:
+        f = h.get("function") if isinstance(h, dict) else getattr(h, "function", None)
+        if f and f.__name__ == name:
+            return f
+    raise AssertionError(name)
+
+
+def go_family_letter(chat=500):
+    """Анкета «Маме, папе, бабушке» до экрана оплаты/превью."""
+    B.occ_go(cb("occ:go:family", chat))
+    for a in ["Лена", "мама", "пирог с вишней по воскресеньям", "за то, что всегда ждала"]:
         B.occ_answer(msg(a, chat))
     B.occ_tone(cb("occ:tone:tender", chat))
     B.occ_answer(msg("Аня", chat))
@@ -100,106 +109,121 @@ B.YOOKASSA_SHOP_ID = ""   # бот-часть идёт через Telegram Payme
 # ═══ 1. По умолчанию выключено ═══
 assert not P.mom_enabled()
 assert not any("Для мамы" in t for t, _ in all_buttons(B.occ_catalog_markup()))
-n = len(SENT)
 B.occ_open_product(500, "family")
-assert not any("Для мамы" in t for t, _ in all_buttons(last("send_message")[2]["reply_markup"])), "страница повода без набора"
-B.momset_cb(cb("momset:info"))
-B.momset_cb(cb("momset:go"))
-assert 500 not in B.STATES and not [s for s in SENT[n:] if s[0] == "edit_message_text"], "выключено: ничего не происходит"
-assert P.mom_info()["enabled"] is False
+assert not any("Для мамы" in t for t, _ in all_buttons(last("send_message")[2]["reply_markup"]))
+n = len(SENT)
+handler("momset_callback")(cb("momset:info"))
+handler("momset_callback")(cb("momset:buy"))
+assert not [s for s in SENT[n:] if s[0] in ("edit_message_text", "send_invoice")], "выключено: ничего не происходит"
+assert P.open_mom_order(500, msg("").from_user) is False
+assert not [o for o in B.all_orders() if o.get("product") == "mom_set"]
+B.cmd_start(pytypes.SimpleNamespace(chat=pytypes.SimpleNamespace(id=500), text="/start momset", from_user=msg("").from_user,
+                                    content_type="text"))
+assert not [o for o in B.all_orders() if o.get("product") == "mom_set"], "ссылка ?start=momset при выключенном флаге молчит"
 
-# ═══ 2. Включаем: кнопки, честная цена ═══
+# ═══ 2. Включаем: кнопки, состав, честная цена ═══
 os.environ["MOM_SET"] = "1"
 btn = [t for t, d in all_buttons(B.occ_catalog_markup()) if d == "momset:info"]
-assert btn and "590" in btn[0] and "письмо, открытка, два гида" in btn[0], btn
+assert btn and "590" in btn[0] and "2 письма" in btn[0], btn
 B.occ_open_product(500, "family")
 assert any(d == "momset:info" for _, d in all_buttons(last("send_message")[2]["reply_markup"]))
 B.occ_open_product(500, "birthday")
 assert not any(d == "momset:info" for _, d in all_buttons(last("send_message")[2]["reply_markup"])), "набор только у повода family"
 
 info = P.mom_info()
-assert info["price"] == 590 and info["regularPrice"] == 199 + 249 + 199 and info["savings"] == 57, info
+assert info["price"] == 590 and info["credits"] == 2 and info["regularPrice"] == 199 + 199 + 249 == 647 and info["savings"] == 57, info
+assert [i["key"] for i in info["items"]] == ["letter", "letter2", "pdf_letters", "pdf_questions"]
+assert info["items"][3]["price"] == 0 and info["items"][3].get("gift"), "«20 вопросов» подарок, в сумму не входит"
 text = P.mom_text()
-assert "590₽" in text and "647₽" in text and "выгода 57₽" in text and "199₽" in text and "249₽" in text, text
-# выгода не обещается, если «20 вопросов» бесплатны и набор получается дороже частей
+assert "590₽" in text and "647₽" in text and "выгода 57₽" in text and "199₽ + 199₽ + 249₽" in text and "в подарок" in text, text
 os.environ["PDF_QUESTIONS_PRICE_RUB"] = "0"
-info0 = P.mom_info()
-assert info0["regularPrice"] == 448 and info0["savings"] == 0 and "выгода" not in P.mom_text()
+assert P.mom_info()["regularPrice"] == 647, "цена «20 вопросов» на сумму не влияет"
 os.environ.pop("PDF_QUESTIONS_PRICE_RUB")
 os.environ["MOM_SET_PRICE_RUB"] = "490"
 assert P.mom_info()["price"] == 490 and P.mom_info()["savings"] == 157
+os.environ["MOM_SET_PRICE_RUB"] = "700"
+assert P.mom_info()["savings"] == 0 and "выгода" not in P.mom_text(), "дороже частей: выгоду не обещаем"
 os.environ.pop("MOM_SET_PRICE_RUB")
 
-B.momset_cb(cb("momset:info"))
-kb = last("edit_message_text")[2]["reply_markup"] if [s for s in SENT if s[0] == "edit_message_text"] else None
-if kb is None:   # safe_edit может слать новым сообщением
-    kb = last("send_message")[2]["reply_markup"]
-assert ("✍️ Собрать набор · 590₽", "momset:go") in all_buttons(kb)
+handler("momset_callback")(cb("momset:info"))
+kb = (last("edit_message_text") if [s for s in SENT if s[0] == "edit_message_text"] else last("send_message"))[2]["reply_markup"]
+assert ("💳 Купить набор · 590₽", "momset:buy") in all_buttons(kb)
 assert any(d == "occ:p:family" for _, d in all_buttons(kb)), "есть путь «только письмо»"
 
-# ═══ 3. Бот: анкета, один платёж 590, выдача письма, открытки и двух PDF ═══
-B.momset_cb(cb("momset:go"))
-st = B.STATES[500]
-assert st["product"] == "family" and st["price"] == 590 and st["bundle"] == "mom_set", st
-family_questions()
-prev_markup = all_buttons(last("send_message")[2]["reply_markup"]) if last("send_message")[2].get("reply_markup") else []
-assert any("590" in t for t, d in prev_markup if d == "occ:buy"), prev_markup
-assert not any(d == "occ:credit" for _, d in prev_markup), "кредит набора 3 писем набор «Для мамы» не оплачивает"
-assert "два PDF" in B.occ_preview_text(B.STATES[500]), "в превью видно, что входит в оплату"
-
-B.occ_buy(cb("occ:buy"))
+# ═══ 3. Бот: один платёж 590, кредиты, PDF, письма по кредиту ═══
+SENT.clear()
+handler("momset_callback")(cb("momset:buy"))
 inv = last("send_invoice")[2]
-assert inv["prices"][0].amount == 59000 and inv["prices"][0].label == "Набор", inv
-assert "Набор" in inv["title"] and "два PDF" in inv["description"]
+assert inv["prices"][0].amount == 59000 and inv["prices"][0].label == "Набор" and "Набор" in inv["title"], inv
 oid = inv["invoice_payload"]
 order = B.get_order(oid)
-assert order["bundle"] == "mom_set" and order["product"] == "family" and order["price_rub"] == 590 and order["status"] == "pending"
-assert not docs(), "до оплаты файлов нет"
+assert order["product"] == "mom_set" and order["price_rub"] == 590 and order["status"] == "pending"
+assert not docs() and (B.get_client(500) or {}).get("credits", 0) == 0, "до оплаты ни файлов, ни кредитов"
+handler("momset_callback")(cb("momset:buy"))
+assert len([o for o in B.all_orders() if o.get("product") == "mom_set"]) == 1, "повторное нажатие: тот же заказ"
+# напоминание о неоплаченном наборе не шлём
+from datetime import timedelta  # noqa: E402
+B.REMINDERS_SINCE = "2000-01-01"
+noon = B.now_msk().replace(hour=12, minute=0)
+order["created_at"] = (noon - timedelta(hours=3)).isoformat()
+B.save_order(order)
+SENT.clear()
+B.send_reminders(noon)
+assert not [s for s in SENT if s[0] == "send_message" and s[1][0] == 500]
 
-pay = pytypes.SimpleNamespace(invoice_payload=oid, telegram_payment_charge_id="x", order_info=pytypes.SimpleNamespace(email="a@b.c"))
 m = msg("")
-m.successful_payment = pay
+m.successful_payment = pytypes.SimpleNamespace(invoice_payload=oid, telegram_payment_charge_id="x", order_info=pytypes.SimpleNamespace(email="a@b.c"))
 SENT.clear()
 B.on_paid(m)
 order = B.get_order(oid)
-assert order["status"] == "done" and order["price_rub"] == 590
-assert any(s[0] == "send_photo" for s in SENT), "открытка выдана"
-d = docs()
-assert [x[1][1].name.split("\\")[-1].split("/")[-1] for x in d] == ["10_pisem_blizkim.pdf", "20_voprosov_mame_i_pape.pdf"], d
+assert order["status"] == "done" and order["credits_granted"] == 2
+assert (B.get_client(500) or {}).get("credits") == 2
+assert [x[1][1].name.replace("\\", "/").split("/")[-1] for x in docs()] == ["10_pisem_blizkim.pdf", "20_voprosov_mame_i_pape.pdf"], docs()
 assert order["bundle_files_sent"] == ["pdf_letters", "pdf_questions"]
+mm = [s for s in SENT if s[0] == "send_message" and s[1][0] == 500 and "В наборе писем" in s[1][1]]
+assert mm and ("🌷 Первое письмо: маме", "occ:p:family") in all_buttons(mm[0][2]["reply_markup"])
 assert any(s[0] == "send_message" and s[1][0] == 1 and "Набор «Для мамы»" in s[1][1] for s in SENT), "админ видит выдачу"
-# повторное уведомление об оплате не выдаёт файлы второй раз
-B.fulfill_order(500, oid, "x", None)
-assert len(docs()) == 2
-# кабинет: кнопка «скачать ещё раз» и повторная выдача только владельцу
+B.fulfill_order(500, oid, "x", None)   # повторное уведомление об оплате
+assert len(docs()) == 2 and (B.get_client(500) or {}).get("credits") == 2, "повтор не удваивает"
+# кабинет: «Скачать ещё раз» только владельцу
 btns = P.again_buttons([order])
 assert len(btns) == 1 and btns[0].callback_data == f"pdfp:mom:{oid}"
 for chat, expect in ((500, 2), (777, 0)):
     SENT.clear()
-    c = cb(f"pdfp:mom:{oid}", chat)
-    # вызываем обработчик напрямую через зарегистрированную функцию
-    for h in B.bot.callback_query_handlers:
-        f = h.get("function") if isinstance(h, dict) else getattr(h, "function", None)
-        if f and f.__name__ == "pdf_callback":
-            f(c)
+    handler("pdf_callback")(cb(f"pdfp:mom:{oid}", chat))
     assert len(docs()) == expect, (chat, len(docs()))
 
-# обычное письмо «Маме» без набора: 199 ₽ и никаких PDF
-B.STATES.pop(500, None)
-B.occ_go(cb("occ:go:family"))
-assert "bundle" not in B.STATES[500] and "price" not in B.STATES[500]
-family_questions()
+# письмо маме по кредиту: без счёта
 SENT.clear()
-B.occ_buy(cb("occ:buy"))
-inv = last("send_invoice")[2]
-assert inv["prices"][0].amount == 19900 and inv["prices"][0].label == "Письмо"
-o2 = B.get_order(inv["invoice_payload"])
-assert not o2.get("bundle")
-m = msg("")
-m.successful_payment = pytypes.SimpleNamespace(invoice_payload=o2["order_id"], telegram_payment_charge_id="y",
-                                               order_info=pytypes.SimpleNamespace(email="a@b.c"))
-B.on_paid(m)
-assert not docs(), "без набора PDF не выдаются"
+go_family_letter()
+prev = [s for s in SENT if s[2].get("reply_markup")][-1][2]["reply_markup"]
+assert any(d == "occ:credit" and "осталось 2" in t for t, d in all_buttons(prev)), all_buttons(prev)
+B.occ_credit(cb("occ:credit"))
+assert not [s for s in SENT if s[0] == "send_invoice"] and (B.get_client(500) or {}).get("credits") == 1
+assert any(s[0] == "send_photo" for s in SENT), "открытка к первому письму"
+# второе письмо — другому близкому (адресата выбирает клиент): другой повод, тоже по кредиту
+B.occ_go(cb("occ:go:friend"))
+for a in ["Маша", "10 лет, познакомились в школе", "море и смех"]:
+    B.occ_answer(msg(a))
+B.occ_tone(cb("occ:tone:warm"))
+B.occ_answer(msg("Аня"))
+B.occ_credit(cb("occ:credit"))
+assert (B.get_client(500) or {}).get("credits") == 0
+letters = [o for o in B.all_orders() if o.get("paid_by") == "credit"]
+assert len(letters) == 2 and {o["product"] for o in letters} == {"family", "friend"}
+
+# другой неоплаченный заказ мешает покупке
+B.REMINDERS_SINCE = "2999-01-01"
+B.save_order({**order, "order_id": "ALI-OTHER", "product": "friend", "pain": "friend", "status": "pending", "chat_id": 501,
+              "created_at": B.now_msk().isoformat()})
+SENT.clear()
+handler("momset_callback")(cb("momset:buy", 501))
+assert any("Сначала оплати" in str(s[1]) for s in SENT) and not [s for s in SENT if s[0] == "send_invoice"]
+
+# ссылка ?start=momset открывает заказ набора
+B.cmd_start(pytypes.SimpleNamespace(chat=pytypes.SimpleNamespace(id=502), text="/start momset", from_user=msg("", 502).from_user,
+                                    content_type="text"))
+assert [o for o in B.all_orders() if o.get("product") == "mom_set" and o["chat_id"] == 502]
 
 # ═══ 4. API сайта ═══
 B.YOOKASSA_SHOP_ID = YK_SHOP
@@ -238,97 +262,58 @@ def fake_yk(method, url, payload=None, idem=None):
 
 
 B.yk_request = fake_yk
-ANS = {"name": "Лена", "who": "мама", "memory": "пирог", "thanks": "за ожидание", "tone": "tender", "sign": "Аня"}
-
-# публичная ручка
 r = call("get", "/momset", user=None)
 mi = j(r)
-assert r.status_code == 200 and mi["enabled"] is True and mi["price"] == 590 and mi["savings"] == 57 and mi["regularPrice"] == 647
-assert [i["key"] for i in mi["items"]] == ["letter", "pdf_letters", "pdf_questions"]
-# набор только для повода family
-r = call("post", "/orders", data={"product": "birthday", "bundle": "mom_set", "answers": {"name": "К", "who": "п", "age": "3", "details": "д", "tone": "warm", "sign": "С"}})
-assert r.status_code == 409 and j(r)["error"]["code"] == "bundle_unavailable"
-r = call("post", "/orders", data={"product": "family", "bundle": "evil", "answers": ANS})
-assert r.status_code == 409
-r = call("post", "/orders", data={"product": "family", "bundle": "mom_set", "answers": ANS})
-oid = j(r)["orderId"]
-call("post", f"/orders/{oid}/preview")
-st = j(call("get", f"/orders/{oid}"))
-assert st["bundle"] == "mom_set" and st["price"] == 590 and st["basePrice"] == 590 and st["creditsAvailable"] == 0, st
-# до оплаты ссылок на файлы нет, голос и кредит недоступны
-assert "bonusFiles" not in st
-r = call("put", f"/orders/{oid}/voice", data={"enabled": True})
-assert r.status_code in (409, 404), r.status_code
-r = call("post", f"/orders/{oid}/pay", data={"useCredit": True})
-assert r.status_code == 409 and j(r)["error"]["code"] == "credit_not_allowed"
-r = call("post", f"/orders/{oid}/pay", data={})
+assert r.status_code == 200 and mi["enabled"] is True and mi["price"] == 590 and mi["savings"] == 57 and mi["regularPrice"] == 647 and mi["credits"] == 2
+assert [i["key"] for i in mi["items"]] == ["letter", "letter2", "pdf_letters", "pdf_questions"]
+assert call("post", "/momset/pay", user=None, data={}).status_code == 401
+SENT.clear()
+r = call("post", "/momset/pay", data={})
 pay = j(r)
 assert r.status_code == 200 and pay["paymentUrl"] == "https://pay.example/9" and pay["price"] == 590, pay
-assert YK["price"] == "590.00" and B.get_order(oid)["bundle"] == "mom_set"
-# файлы до оплаты не отдаются
-fake_path = f"{API}/orders/{oid}/bundle/pdf_letters.pdf"
-assert client.get(fake_path).status_code == 401
-assert call("get", f"/orders/{oid}/bundle/pdf_letters.pdf").status_code == 404
-SENT.clear()
+assert YK["price"] == "590.00"
+moid = pay["orderId"]
+assert B.get_order(moid)["product"] == "mom_set"
+r = call("post", "/momset/pay", data={})
+assert j(r)["orderId"] == moid, "повтор: тот же заказ"
+st = j(call("post", f"/purchases/{moid}/check"))
+assert st["paid"] is False and st["kind"] == "momset" and "files" not in st
+assert call("get", f"/purchases/{moid}/file/pdf_letters.pdf").status_code == 404, "до оплаты файла нет"
+assert call("post", f"/purchases/{moid}/check", user=601).status_code == 404
 YK.update(status="succeeded", paid=True)
-r = call("post", f"/orders/{oid}/pay/check")
-assert j(r)["paid"] is True
+st = j(call("post", f"/purchases/{moid}/check"))
+assert st["paid"] is True and st["kind"] == "momset" and st["credits"] == 2, st
+assert [f["key"] for f in st["files"]] == ["pdf_letters", "pdf_questions"]
 assert len(docs()) == 2, "пользователю Telegram файлы пришли и в чат"
-st = j(call("get", f"/orders/{oid}"))
-assert st["status"] == "delivered" and st["bundle"] == "mom_set" and "letter" in st
-files = st["bonusFiles"]
-assert [f["key"] for f in files] == ["pdf_letters", "pdf_questions"] and all(f["url"] for f in files), files
-for f in files:
+for f in st["files"]:
     path = f["url"].replace(B.site_pages.SITE_URL, "")
     res = client.get(path)
     assert res.status_code == 200 and res.data[:5] == b"%PDF-" and res.mimetype == "application/pdf", f
     assert client.get(path.replace("sig=", "sig=0")).status_code == 401, "подпись подделать нельзя"
     assert call("get", path.replace(API, ""), user=601).status_code == 404, "чужой не скачает"
-assert call("get", f"/orders/{oid}/bundle/nope.pdf").status_code == 404
-# обычный заказ без набора: bundle в состоянии нет
-o3 = j(call("post", "/orders", user=602, data={"product": "family", "answers": ANS}))["orderId"]
-call("post", f"/orders/{o3}/preview", user=602)
-s3 = j(call("get", f"/orders/{o3}", user=602))
-assert "bundle" not in s3 and s3["price"] == 199
+assert call("get", f"/purchases/{moid}/file/nope.pdf").status_code == 404
+items = j(call("get", "/me/purchases"))["items"]
+assert items and items[0]["kind"] == "momset" and items[0]["price"] == 590 and items[0]["status"] == "delivered"
+assert j(call("get", "/momset"))["myCredits"] == 2
 
-# переключатель набора до оплаты (блок «Дополнения» на сайте)
-r = call("put", f"/orders/{o3}/bundle", user=602, data={"enabled": True})
-assert r.status_code == 200 and j(r)["price"] == 590 and j(r)["bundle"] == "mom_set", j(r)
-s3 = j(call("get", f"/orders/{o3}", user=602))
-assert s3["bundle"] == "mom_set" and s3["price"] == 590 and s3["creditsAvailable"] == 0
-B.partners.save_promo({"code": "MOM10", "kind": "percent", "value": 10, "active": True, "used": [], "limit": 0})
-pc = j(call("post", "/promo/check", user=602, data={"code": "MOM10", "product": "family", "bundle": "mom_set"}))
-assert pc["valid"] and pc["basePrice"] == 590 and pc["price"] == 531, pc
-pc = j(call("post", "/promo/check", user=602, data={"code": "MOM10", "product": "family"}))
-assert pc["basePrice"] == 199, "без набора промокод считается от цены письма"
-r = call("put", f"/orders/{o3}/bundle", user=602, data={"enabled": False})
-assert j(r)["price"] == 199 and j(r)["bundle"] is None
-assert "bundle" not in j(call("get", f"/orders/{o3}", user=602))
-assert call("put", f"/orders/{o3}/bundle", user=602, data={"enabled": "да"}).status_code == 400
-assert call("put", f"/orders/{o3}/bundle", user=603, data={"enabled": True}).status_code == 404, "чужой заказ"
-o4 = j(call("post", "/orders", user=604, data={"product": "birthday", "answers": {"name": "К", "who": "п", "age": "3", "details": "д", "tone": "warm", "sign": "С"}}))["orderId"]
-assert call("put", f"/orders/{o4}/bundle", user=604, data={"enabled": True}).status_code == 409, "набор только у повода family"
-# включили, оплатили (заказ 590), после начала оплаты переключать нельзя
-call("put", f"/orders/{o3}/bundle", user=602, data={"enabled": True})
-YK.update(status="pending", paid=False)
-r = call("post", f"/orders/{o3}/pay", user=602, data={})
-assert j(r)["price"] == 590 and B.get_order(o3)["price_rub"] == 590 and B.get_order(o3)["bundle"] == "mom_set"
-r = call("put", f"/orders/{o3}/bundle", user=602, data={"enabled": False})
-assert r.status_code == 409 and j(r)["error"]["code"] == "locked"
-
-# гость сайта: письмо на почту содержит упоминание PDF
+# гость сайта (канал web): кредиты без Telegram, на почте ссылка на страницу с PDF
 sent_mail = []
-import web_auth  # noqa: E402
-web_auth.send_mail = lambda Bm, email, subj, text: sent_mail.append(text) or True
-web_auth.on_paid(B, {"order_id": "ALI-X", "email": "g@x.ru", "bundle": "mom_set"})
-assert "Два PDF" in sent_mail[-1]
-web_auth.on_paid(B, {"order_id": "ALI-Y", "email": "g@x.ru"})
-assert "Два PDF" not in sent_mail[-1]
+web_auth.send_mail = lambda Bm, email, subj, text: sent_mail.append((subj, text)) or True
+gid = 7_000_000_000_001
+B.upsert_client(pytypes.SimpleNamespace(id=gid, first_name="Гость", last_name="", username=""))
+go = P.new_mom_order(gid, B.get_client(gid))
+go["channel"] = "web"
+go["email"] = "g@x.ru"
+B.save_order(go)
+SENT.clear()
+B.fulfill_order(gid, go["order_id"], "w", "g@x.ru")
+assert (B.get_client(gid) or {}).get("credits") == 2 and not docs(), "гостю файлы в Telegram не шлём"
+assert sent_mail and "Набор «Для мамы»" in sent_mail[-1][0] and "?paid=" in sent_mail[-1][1] and "PDF" in sent_mail[-1][1]
 
-# ═══ 5. Выключили флаг обратно: API закрыт, оплаченное остаётся доступным ═══
+# ═══ 5. Флаг выключили: новые покупки закрыты, оплаченное остаётся ═══
 os.environ.pop("MOM_SET")
 assert j(call("get", "/momset", user=None))["enabled"] is False
-r = call("post", "/orders", user=603, data={"product": "family", "bundle": "mom_set", "answers": ANS})
-assert r.status_code == 409
-assert j(call("get", f"/orders/{oid}"))["bonusFiles"], "уже оплаченное скачать можно и при выключенном флаге"
+r = call("post", "/momset/pay", user=603, data={})
+assert r.status_code == 409 and j(r)["error"]["code"] == "momset_unavailable"
+assert [f["key"] for f in j(call("post", f"/purchases/{moid}/check"))["files"]] == ["pdf_letters", "pdf_questions"]
 print("test_mom_set: OK")

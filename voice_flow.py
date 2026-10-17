@@ -154,7 +154,7 @@ def _upsell(call):
 
 def add_preview_toggle(kb, state):
     """Кнопка на превью: включить озвучку (+N ₽) или вернуть обычное письмо."""
-    if not VL.enabled() or state.get("group") or state.get("bundle") or state.get("product") not in B.OCC.PRODUCTS:
+    if not VL.enabled() or state.get("group") or state.get("product") not in B.OCC.PRODUCTS:
         return
     extra = VL.upsell_price()
     if state.get("voice"):
@@ -169,7 +169,7 @@ def _preview_toggle(call):
     state = B.STATES.get(chat_id) or {}
     parts = call.data.split(":")
     B.bot.answer_callback_query(call.id)
-    if (not VL.enabled() or state.get("step") != "occ_paywall" or state.get("group") or state.get("bundle")
+    if (not VL.enabled() or state.get("step") != "occ_paywall" or state.get("group")
             or state.get("product") not in B.OCC.PRODUCTS):
         return
     if parts[2] == "off":

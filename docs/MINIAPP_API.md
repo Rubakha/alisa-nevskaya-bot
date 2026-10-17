@@ -225,10 +225,11 @@ python bot_best.py          # polling + Flask на порту STATS_PORT (по �
 
 ### 7.4a. Набор «Для мамы» (590 ₽, флаг `MOM_SET=1`, по умолчанию выключен)
 
-- `GET /momset` (публичная) → `{"enabled","key":"mom_set","title","price":590,"regularPrice":647,"savings":57,"items":[{"key":"letter|pdf_letters|pdf_questions","title","price"}]}`. `regularPrice` — сумма действующих цен частей по отдельности, `savings` > 0 только если набор дешевле (если «20 вопросов» бесплатны, выгоду не показываем). `enabled:false` — сайт блок не рисует.
-- `POST /orders` с `"product":"family","bundle":"mom_set"` → обычный черновик письма, но цена одна на всё (`price`/`basePrice` = 590). При выключенном флаге или другом поводе: `409 bundle_unavailable`. Озвучка и оплата кредитом набора 3 письма к такому заказу не применяются (`creditsAvailable:0`, `409 credit_not_allowed`/`voice_not_allowed`).
-- `PUT /orders/<id>/bundle` `{"enabled":true|false}` — до оплаты превратить письмо «Маме, папе, бабушке» в набор или вернуть обычное (озвучка при включении снимается) → `{"ok","price","bundle":"mom_set"|null}`; после начала оплаты `409 locked`, после оплаты `409 paid`. `POST /promo/check` принимает `"bundle":"mom_set"` и считает скидку от цены набора.
-- Дальше всё как у письма: `preview`, `pay`, `pay/check`. В `GET /orders/<id>`: `bundle:"mom_set"`, после оплаты ещё `bonusFiles:[{"key","title","url"}]` (подписанные ссылки, час) на `GET /orders/<id>/bundle/<pdf_letters|pdf_questions>.pdf` (до оплаты и чужому `404`). Пользователю Telegram те же два файла приходят в чат; гостю сайта только по этим ссылкам (на почту уходит ссылка на страницу возврата).
+Устроен как набор «3 письма»: покупка даёт 2 кредита на письма с открыткой (первое маме, второе кому выберет клиент) и два PDF: «10 писем, которые стоит написать близким» и «20 вопросов маме и папе» в подарок. Письма потом пишутся обычным потоком и оплачиваются кредитом (`useCredit`).
+
+- `GET /momset` (публичная) → `{"enabled","key":"mom_set","title","price":590,"credits":2,"regularPrice":647,"savings":57,"items":[{"key":"letter|letter2|pdf_letters|pdf_questions","title","price","pdf"?,"gift"?}],"myCredits"?}`. `regularPrice` = 199 + 199 + 249 (подарочные «20 вопросов» в сумму не входят), `savings` > 0 только если набор дешевле. `enabled:false` — сайт блок не рисует.
+- `POST /momset/pay` `{"promo"?, "email"?}` → как `/pack/pay`: `{"orderId","paymentUrl","price":590}`; тестер: `{"paid":true,"price":0,"test":true,"orderId"}`. Выключен флаг: `409 momset_unavailable`.
+- Опрос — `POST /purchases/<orderId>/check` → `{"paid":true,"kind":"momset","credits":N,"files":[{"key":"pdf_letters|pdf_questions","title","url"}]}`; ссылки подписаны на час, `GET /purchases/<orderId>/file/<key>.pdf` до оплаты и чужому — `404`. Пользователю Telegram те же файлы приходят в чат; гость сайта (канал web) получает кредиты и письмо со ссылкой на страницу возврата. Покупка видна в `GET /me/purchases` (`kind:"momset"`).
 
 ### 7.5. Поддержка
 

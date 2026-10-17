@@ -250,8 +250,7 @@ def synthetic_draft(order):
             "card_line": order.get("card_line"), "card_ref": order.get("card_ref"),
             "default_title": order.get("card_title") or "", "card_seen": [], "retexts": FREE_RETEXTS,
             "wish_used": True, "promo": order.get("promo_code"), "qa": order.get("qa") or [],
-            "created_at": order.get("created_at"),
-            **({"bundle": order["bundle"], "price": B.PDFP.mom_price()} if order.get("bundle") else {})}
+            "created_at": order.get("created_at")}
 
 
 def find_draft(order_id):
@@ -320,8 +319,8 @@ def checkout(user, order, data):
 
 def pay_with_credit(user, d, order):
     """Оплата письма кредитом набора (как occ:credit в боте): заказ выдаётся сразу, кредит списывается."""
-    if d.get("group") or d.get("voice") or d.get("bundle"):
-        raise err("credit_not_allowed", "Письмо группой, письмо с озвучкой и набор «Для мамы» кредитом не оплачиваются.", 409)
+    if d.get("group") or d.get("voice"):
+        raise err("credit_not_allowed", "Письмо группой и письмо с озвучкой кредитом не оплачиваются.", 409)
     profile = B.get_client(user["id"]) or {}
     if profile.get("credits", 0) < 1:
         raise err("no_credits", "В наборе не осталось писем.", 409)
@@ -634,17 +633,12 @@ def present(d):
         "cardRef": ref, "cardTitle": title_line(d)[0], "cardLine": title_line(d)[1],
         "createdAt": d.get("created_at"),
     }
-    if d.get("bundle") or (order or {}).get("bundle"):   # набор «Для мамы»: письмо + открытка + два PDF
-        out["bundle"] = B.PDFP.MOM_KEY
-        if done:
-            out["bonusFiles"] = [{**f, "url": signed(oid, f"/orders/{oid}/bundle/{f['key']}.pdf")}
-                                 for f in B.PDFP.mom_files(order)]
     if ref:
         out["previewUrl"] = signed(oid, f"/orders/{oid}/card-preview.jpg", ref=ref) if not done else \
             signed(oid, f"/orders/{oid}/card.jpg")
     if not done:
         credits = (B.get_client(d["chat_id"]) or {}).get("credits", 0)
-        out["creditsAvailable"] = credits if not (d.get("group") or d.get("voice") or d.get("bundle")) else 0
+        out["creditsAvailable"] = credits if not (d.get("group") or d.get("voice")) else 0
     if d.get("letter") and not done:
         head, locked, hidden_paragraphs = masked_head(d["letter"])
         out.update(letterPreview=head, locked=True, previewHidden=True, lockedChars=locked,
@@ -911,9 +905,6 @@ def routes():
                 raise err("bad_answers", "Слишком длинный ответ — сократи до 1500 знаков.", 400, field=qkey)
             qa.append([text, val])
             flat[qkey] = val
-        bundle = str(data.get("bundle") or "").strip()
-        if bundle and (bundle != B.PDFP.MOM_KEY or key != B.PDFP.MOM_OCCASION or not B.PDFP.mom_enabled()):
-            raise err("bundle_unavailable", "Этот набор сейчас недоступен.", 409)
         source = clean_source(data.get("source")) if data.get("source") else None
         if data.get("source") and not source:
             raise err("bad_source", "Метка источника: только латиница, цифры, _ и -, до 40 знаков.", 400)
@@ -939,8 +930,6 @@ def routes():
              "retexts": 0, "wish_used": False, "promo": None, "source": source,
              "created_at": B.now_msk().isoformat()}
         d["api_order_id"] = d["order_id"]
-        if bundle:   # набор «Для мамы»: одна цена на письмо, открытку и два PDF; озвучка и кредиты к набору не применяются
-            d.update(B.PDFP.mom_state_extra())
         save_draft(d)
         if source:
             apply_attribution(user, source)   # первое касание, если ещё не записано
@@ -1053,48 +1042,6 @@ def routes():
         return Response(B.occ_postcard(order), 200, mimetype="image/jpeg",
                         headers={"Cache-Control": "private, max-age=300"})
 
-    @endpoint("/orders/<order_id>/bundle", methods=("PUT",))
-    def bundle_toggle(order_id, user):
-        """До оплаты: превратить письмо «Маме, папе, бабушке» в набор «Для мамы» (590 ₽) или вернуть обычное письмо. Озвучка при этом снимается."""
-        d = own_draft(order_id, user)
-        if d.get("synthetic") or d.get("group") or d.get("product") != B.PDFP.MOM_OCCASION:
-            raise err("bundle_unavailable", "Для этого письма набор недоступен.", 409)
-        order = real_order(d)
-        if order and order.get("status") == "done":
-            raise err("paid", "Письмо уже оплачено.", 409)
-        if order and order.get("status") == "pending" and order.get("yk_payment_id"):
-            raise err("locked", "Оплата уже начата. Заверши её или отмени заказ.", 409)
-        enabled = body().get("enabled")
-        if enabled is True:
-            if not B.PDFP.mom_enabled():
-                raise err("bundle_unavailable", "Этот набор сейчас недоступен.", 409)
-            d.pop("voice", None)
-            d.pop("voice_gender", None)
-            d.update(B.PDFP.mom_state_extra())
-        elif enabled is False:
-            d.pop("bundle", None)
-            d.pop("price", None)
-        else:
-            raise err("bad_request", "enabled: true или false.", 400)
-        save_draft(d)
-        q = quote(d)
-        return {"ok": True, "price": q["payable"], "bundle": B.PDFP.MOM_KEY if d.get("bundle") else None}
-
-    @endpoint("/orders/<order_id>/bundle/<key>.pdf", auth="sig")
-    def bundle_file(order_id, key, user):
-        """Файл набора «Для мамы» по подписанной ссылке: только после оплаты и только владельцу заказа."""
-        d = find_draft(order_id)
-        order = real_order(d) if d else None
-        if not order or not B.PDFP.is_mom(order) or order.get("status") != "done" \
-                or (user and d.get("chat_id") != user["id"]) or key not in B.PDFP.MOM_FILES \
-                or not os.path.exists(B.PDFP.file_path(key)):
-            raise err("not_found", "Файл станет доступен после оплаты набора.", 404)
-        with open(B.PDFP.file_path(key), "rb") as f:
-            data = f.read()
-        return Response(data, 200, mimetype="application/pdf",
-                        headers={"Content-Disposition": f'attachment; filename="{B.PDFP.PRODUCTS[key]["file"]}"',
-                                 "Cache-Control": "private, max-age=300"})
-
     @endpoint("/promo/check", methods=("POST",))
     def promo_check(user):
         data = body()
@@ -1103,11 +1050,8 @@ def routes():
         if not code:
             raise err("bad_request", "Введи промокод.", 400)
         ok, res = B.partners.check_promo(user["id"], code)
-        base = p["price"]
-        if data.get("bundle") == B.PDFP.MOM_KEY and data.get("product") == B.PDFP.MOM_OCCASION and B.PDFP.mom_enabled():
-            base = B.PDFP.mom_price()   # промокод на набор «Для мамы»: скидка считается от цены набора
-        q = B.partners.quote(user["id"], base, code if ok else None)
-        return {"valid": ok, "applied": bool(q.get("promo_code")), "price": q["payable"], "basePrice": base,
+        q = B.partners.quote(user["id"], p["price"], code if ok else None)
+        return {"valid": ok, "applied": bool(q.get("promo_code")), "price": q["payable"], "basePrice": p["price"],
                 "discount": q["discount"], "label": q["label"],
                 "message": "" if ok else res}
 
@@ -1128,7 +1072,7 @@ def routes():
             ok, res = B.partners.apply_promo_code(user["id"], promo)   # как «Есть промокод» в боте (и привязка партнёра)
             if not ok:
                 raise err("bad_promo", res, 400)
-        sig_now = [d["letter"], promo, bool(d.get("voice")), d.get("voice_gender")] + ([d["bundle"]] if d.get("bundle") else [])
+        sig_now = [d["letter"], promo, bool(d.get("voice")), d.get("voice_gender")]
         if order and order.get("status") == "pending" and (d.get("synthetic") or d.get("order_sig") == sig_now):
             pass   # повторное «Оплатить» или заказ, созданный в боте, — тот же заказ
         else:

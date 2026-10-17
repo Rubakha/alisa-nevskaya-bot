@@ -9,7 +9,7 @@ fulfill_order -> отправка файла из assets/. Своей оплат
   PDF_QUESTIONS_PRICE_RUB цена «20 вопросов», ₽ (по умолчанию 199)
   PDF_LETTERS_PRICE_RUB   цена «10 писем», ₽ (по умолчанию 249)
   PDF_FOLLOWUP            0 = не слать мягкое сообщение «теперь напиши письмо» после выдачи файла (по умолчанию шлём)
-Набор «Для мамы» (письмо + открытка + два PDF одним платежом) живёт в конце файла и включается отдельно:
+Набор «Для мамы» (2 письма с открыткой + PDF «10 писем» + «20 вопросов» в подарок, 590 ₽) живёт в конце файла и включается отдельно:
   MOM_SET=1               включить набор (по умолчанию ВЫКЛЮЧЕНО: кнопок нет, API отвечает enabled=false)
   MOM_SET_PRICE_RUB       цена набора, ₽ (по умолчанию 590)
 Подключается в bot_best.py: pdf_products.register(sys.modules[__name__]).
@@ -235,13 +235,15 @@ def again_buttons(orders):
 
 
 # ── Набор «Для мамы» (MOM_SET=1) ─────────────────────────────────────────────────
-# Письмо про маму идёт обычным потоком повода «family» (вопросы, превью, открытка), но цена одна на всё:
-# state["price"] = цена набора, state["bundle"] = "mom_set". Заказ остаётся письмом (product="family"),
-# в нём order["bundle"]="mom_set"; после оплаты fulfill_order выдаёт письмо с открыткой как обычно и следом два PDF.
+# Решение 18.10: два письма с открыткой (первое маме, второе ещё одному близкому, адресата выбирает клиент) + PDF «10 писем»
+# + «20 вопросов маме и папе» в подарок, 590 ₽ одним платежом. Устроен как набор «3 письма» (pack3): покупка даёт кредиты
+# (profile["credits"] += 2), письма потом пишутся обычным потоком и оплачиваются кредитом («Забрать по набору»).
+# Новой анкеты и нового потока оплаты нет. Заказ набора: product="mom_set" (не письмо), после оплаты fulfill_order зовёт deliver_mom.
 MOM_KEY = "mom_set"
 MOM_PRICE = 590
+MOM_CREDITS = 2
 MOM_OCCASION = "family"
-MOM_FILES = ("pdf_letters", "pdf_questions")   # порядок выдачи
+MOM_FILES = ("pdf_letters", "pdf_questions")   # порядок выдачи: платный гид, потом подарок
 
 
 def mom_enabled():
@@ -256,48 +258,52 @@ def mom_price():
 
 
 def is_mom(order):
-    return (order or {}).get("bundle") == MOM_KEY
-
-
-def mom_letter_price():
-    return B.OCC.PRODUCTS[MOM_OCCASION]["price"]
+    return (order or {}).get("product") == MOM_KEY
 
 
 def mom_info():
-    """Состав и честная цена. regular: сумма действующих цен тех же вещей по отдельности (PDF с ценой 0 считается за 0);
-    savings только если набор дешевле, иначе выгоду не обещаем."""
-    items = [{"key": "letter", "title": "Письмо про маму с открыткой и ссылкой-конвертом", "price": mom_letter_price()}]
-    for k in MOM_FILES:
-        items.append({"key": k, "title": PRODUCTS[k]["short"] + " (PDF)", "price": price(k), "pdf": True})
+    """Состав и честная цена. regular: два письма по цене письма маме + платный PDF «10 писем» по отдельности;
+    «20 вопросов» идёт подарком и в сумму не входит. savings только если набор дешевле, иначе выгоду не обещаем."""
+    letter = B.OCC.PRODUCTS[MOM_OCCASION]["price"]
+    items = [
+        {"key": "letter", "title": "Письмо маме с открыткой и ссылкой-конвертом", "price": letter},
+        {"key": "letter2", "title": "Второе письмо с открыткой: ещё одному близкому, кому захочешь", "price": letter},
+        {"key": "pdf_letters", "title": PRODUCTS["pdf_letters"]["short"] + " (PDF)", "price": price("pdf_letters"), "pdf": True},
+        {"key": "pdf_questions", "title": PRODUCTS["pdf_questions"]["short"] + " (PDF)", "price": 0, "pdf": True, "gift": True},
+    ]
     regular = sum(i["price"] for i in items)
     p = mom_price()
-    return {"key": MOM_KEY, "title": "Набор «Для мамы»", "price": p, "regularPrice": regular,
+    return {"key": MOM_KEY, "title": "Набор «Для мамы»", "price": p, "credits": MOM_CREDITS, "regularPrice": regular,
             "savings": max(0, regular - p), "items": items, "enabled": mom_enabled()}
+
+
+def mom_price_line(info=None):
+    """Одна строка про цену: из чего складывается сумма по отдельности, выгода только если она есть."""
+    info = info or mom_info()
+    parts = " + ".join(f"{i['price']}₽" for i in info["items"] if i["price"])
+    line = f"Отдельно: {parts} = {info['regularPrice']}₽. В наборе {info['price']}₽"
+    return line + (f", выгода {info['savings']}₽." if info["savings"] > 0 else ".")
 
 
 def mom_text():
     """Страница набора в боте: состав, цены частей и итог без накрутки."""
     info = mom_info()
     lines = [f"🎁 <b>{info['title']}</b> · {info['price']}₽", "",
-             "Всё, чтобы сказать маме важное, в одном наборе:",
-             "✍️ письмо про твою маму: по твоим деталям, не шаблон",
-             "🖼 открытка с её именем и ссылка-конверт: мама вскроет письмо сама",
+             "Что внутри:",
+             "✍️ письмо маме: по твоим деталям, с открыткой и ссылкой-конвертом",
+             "💌 второе письмо с открыткой: ещё одному близкому, кого выберешь ты (папе, сестре, подруге)",
              f"📘 «{PRODUCTS['pdf_letters']['short']}» (PDF)",
-             f"📗 «{PRODUCTS['pdf_questions']['short']}» (PDF)", ""]
-    parts = " + ".join(f"«{i['title'].split(' (')[0]}» {i['price']}₽" if i.get("pdf") else f"письмо {i['price']}₽"
-                       for i in info["items"])
-    if info["savings"] > 0:
-        lines.append(f"Отдельно: {parts} = {info['regularPrice']}₽. В наборе {info['price']}₽, выгода {info['savings']}₽.")
-    else:
-        lines.append(f"Отдельно: {parts} = {info['regularPrice']}₽.")
-    lines += ["", "Начало письма и превью открытки видно до оплаты. Платишь один раз, оба PDF приходят файлами следом за письмом."]
+             f"🎁 «{PRODUCTS['pdf_questions']['short']}» (PDF) в подарок", "",
+             mom_price_line(info), "",
+             "Платишь один раз. Оба письма пишутся потом, когда будет время: после оплаты придут PDF, "
+             "а письма оплачивать уже не нужно. Начало письма и превью открытки видно до списания кредита."]
     return "\n".join(lines)
 
 
 def mom_markup():
     kb = types.InlineKeyboardMarkup(row_width=1)
-    kb.add(types.InlineKeyboardButton(f"✍️ Собрать набор · {mom_price()}₽", callback_data="momset:go"))
-    kb.add(types.InlineKeyboardButton(f"✉️ Только письмо · {mom_letter_price()}₽", callback_data=f"occ:p:{MOM_OCCASION}"))
+    kb.add(types.InlineKeyboardButton(f"💳 Купить набор · {mom_price()}₽", callback_data="momset:buy"))
+    kb.add(types.InlineKeyboardButton(f"✉️ Только письмо · {B.OCC.PRODUCTS[MOM_OCCASION]['price']}₽", callback_data=f"occ:p:{MOM_OCCASION}"))
     kb.add(types.InlineKeyboardButton("↩️ Все письма", callback_data="occ:catalog"))
     return kb
 
@@ -305,29 +311,72 @@ def mom_markup():
 def mom_button(kb):
     """Кнопка набора в каталоге поводов и на странице «Маме, папе, бабушке»; MOM_SET выключен: ничего."""
     if mom_enabled():
-        kb.add(types.InlineKeyboardButton(f"🎁 Набор «Для мамы» {mom_price()} ₽ (письмо, открытка, два гида)",
+        kb.add(types.InlineKeyboardButton(f"🎁 Набор «Для мамы» {mom_price()} ₽ (2 письма, 2 открытки, 2 гида)",
                                           callback_data="momset:info"))
 
 
-def mom_state_extra():
-    """Что добавить в состояние диалога письма, чтобы цена и выдача стали наборными."""
-    return {"price": mom_price(), "bundle": MOM_KEY}
+def new_mom_order(chat_id, profile):
+    """Неоплаченный заказ набора (как occ_pack): общий для бота и API сайта."""
+    order = {
+        "order_id": B.new_order_id(), "chat_id": chat_id, "name": profile["name"],
+        "username": profile.get("username", ""), "pain": MOM_KEY, "product": MOM_KEY,
+        "answers": [], "letter_text": "", "price_rub": mom_price(), "status": "pending", "is_gift": False,
+        "created_at": B.now_msk().isoformat(), "paid_at": None, "delivered_at": None, "email": None, "rating": None,
+    }
+    B.partners.apply_to_order(order, chat_id)
+    B.save_order(order)
+    return order
+
+
+def open_mom_order(chat_id, user):
+    """Заказ набора и окно оплаты. Флаг выключен: ничего не делает."""
+    if not mom_enabled():
+        return False
+    pending = B.pending_orders(chat_id)
+    if pending and is_mom(pending[0]):   # повторный переход: тот же заказ
+        B.send_order_invoice(chat_id, pending[0])
+        return True
+    if pending:
+        B.bot.send_message(chat_id, "⏳ Сначала оплати или отмени неоплаченный заказ.",
+                           reply_markup=B.pending_markup(pending[0]["order_id"]))
+        return True
+    order = new_mom_order(chat_id, B.upsert_client(user))
+    B.bot.send_message(chat_id, mom_text(), parse_mode="HTML")
+    if order["price_rub"] <= 0:
+        B.fulfill_order(chat_id, order["order_id"], "free", None)
+    else:
+        B.send_order_invoice(chat_id, order)
+    return True
+
+
+def grant_mom_credits(order):
+    """Два кредита на письма, один раз на заказ (повтор уведомления об оплате не удваивает)."""
+    if order.get("credits_granted"):
+        return (B.get_client(order["chat_id"]) or {}).get("credits", 0)
+    profile = B.get_client(order["chat_id"]) or {}
+    profile["credits"] = profile.get("credits", 0) + MOM_CREDITS
+    B.write_json(B.client_path(order["chat_id"]), profile)
+    order["credits_granted"] = MOM_CREDITS
+    B.save_order(order)
+    return profile["credits"]
 
 
 def mom_files(order):
-    """Для API: файлы набора оплаченного заказа (ключ, название); ссылки подписывает miniapp_api."""
+    """Для API: файлы набора оплаченного заказа (ключ, название); ссылки подписывает miniapp_api_v2."""
     if not is_mom(order) or order.get("status") != "done":
         return []
     return [{"key": k, "title": PRODUCTS[k]["short"]} for k in MOM_FILES]
 
 
 def deliver_mom(chat_id, order):
-    """Два PDF файлами в чат после письма и открытки. Сбой одного файла не мешает второму; админу итог."""
+    """После оплаты: два кредита, два PDF файлами и кнопки «написать письмо маме» / «второе письмо». Сбой файла не мешает остальному."""
+    credits = grant_mom_credits(order)
     sent = []
     for k in MOM_FILES:
-        cap = ("🎁 Из набора «Для мамы»: " + PRODUCTS[k]["short"] + " 🤍\n"
-               + ("Начни с одной фразы: «Я заметил, что ты всегда…»" if k == "pdf_letters"
-                  else "Начни с одного вечера и двух-трёх вопросов. Остальные подождут."))
+        free = k == "pdf_questions"
+        cap = ("🎁 Подарок из набора «Для мамы»: " if free else "📘 Из набора «Для мамы»: ") + PRODUCTS[k]["short"] + " 🤍\n" \
+            + ("Начни с одного вечера и двух-трёх вопросов. Остальные подождут." if free
+               else "Начни с одной фразы: «Я заметил, что ты всегда…»")
         try:
             with open(file_path(k), "rb") as f:
                 B.bot.send_document(chat_id, f, caption=cap)
@@ -337,12 +386,22 @@ def deliver_mom(chat_id, order):
     if len(sent) < len(MOM_FILES):
         B.bot.send_message(chat_id, "Оплата прошла, но часть файлов не отправилась. Напиши в «❓ Помощь», пришлю вручную. "
                                     f"Номер: <code>{order['order_id']}</code>", parse_mode="HTML")
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    kb.add(types.InlineKeyboardButton("🌷 Первое письмо: маме", callback_data=f"occ:p:{MOM_OCCASION}"))
+    kb.add(types.InlineKeyboardButton("💌 Второе письмо: кому захочешь", callback_data="occ:catalog"))
+    try:
+        B.bot.send_message(chat_id, f"✅ Оплата прошла. В наборе писем с открыткой: {credits} 🎁\n"
+                                    "Первое можно написать маме, второе отправить ещё кому-то близкому. "
+                                    "Выбирай повод, оплачивать письма больше не нужно. Кнопка «Забрать по набору» будет на превью.",
+                           reply_markup=kb)
+    except Exception as exc:
+        B.log.error("mom set message %s: %s", order.get("order_id"), exc)
     try:
         order["bundle_files_at"] = B.now_msk().isoformat()
         order["bundle_files_sent"] = sent
         B.save_order(order)
         if B.ADMIN_ID:
-            B.safe_send(B.ADMIN_ID, f"🎁 Набор «Для мамы»: {len(sent)} из {len(MOM_FILES)} PDF выданы · "
+            B.safe_send(B.ADMIN_ID, f"🎁 Набор «Для мамы»: {len(sent)} из {len(MOM_FILES)} PDF выданы, +{MOM_CREDITS} письма · "
                                     f"{order.get('price_rub', 0)} ₽ · <code>{order['order_id']}</code>"
                         + ("" if len(sent) == len(MOM_FILES) else " · ⚠️ часть файлов не отправилась"))
     except Exception as exc:
@@ -353,6 +412,23 @@ def deliver_mom(chat_id, order):
 def register(bot_module):
     global B
     B = bot_module
+
+    @B.bot.callback_query_handler(func=lambda c: (c.data or "").startswith("momset:"))
+    def momset_callback(call):
+        """Набор «Для мамы»: страница состава и покупка. Флаг MOM_SET выключен: молчим."""
+        chat_id = call.message.chat.id
+        B.bot.answer_callback_query(call.id)
+        if not mom_enabled():
+            return
+        if call.data == "momset:info":
+            B.safe_edit(call, mom_text(), mom_markup())
+        elif call.data == "momset:buy":
+            if B.pending_count(chat_id) >= B.MAX_PENDING and not is_mom((B.pending_orders(chat_id) or [{}])[0]):
+                pending = B.pending_orders(chat_id)[0]
+                B.bot.send_message(chat_id, "⏳ Сначала оплати или отмени неоплаченный заказ.",
+                                   reply_markup=B.pending_markup(pending["order_id"]))
+                return
+            open_mom_order(chat_id, call.from_user)
 
     @B.bot.callback_query_handler(func=lambda c: (c.data or "").startswith("pdfp:"))
     def pdf_callback(call):

@@ -155,6 +155,8 @@ def routes_subscriptions():
 
 # ── набор «3 письма», PDF «Разговор с папой», опрос покупок ─────────────
 def shop_item(kind):
+    if kind == "momset":   # набор «Для мамы»: 2 письма + PDF, тот же путь покупки, что у набора «3 письма»
+        return {"key": B.PDFP.MOM_KEY, "price": B.PDFP.mom_price(), "title": "Набор «Для мамы»"}
     return B.OCC.PACK if kind == "pack" else B.OCC.DOC
 
 
@@ -164,12 +166,14 @@ def regular_pack_price():
 
 def purchase_order(order_id, user):
     o = B.get_order(order_id) if A.SAFE_ID.match(order_id or "") else None
-    if not o or o.get("chat_id") != user["id"] or o.get("product") not in (B.OCC.PACK["key"], B.OCC.DOC["key"]):
+    if not o or o.get("chat_id") != user["id"] or o.get("product") not in (B.OCC.PACK["key"], B.OCC.DOC["key"], B.PDFP.MOM_KEY):
         raise A.err("not_found", "Покупка не найдена.", 404)
     return o
 
 
 def kind_of(order):
+    if order.get("product") == B.PDFP.MOM_KEY:
+        return "momset"
     return "pack" if order.get("product") == B.OCC.PACK["key"] else "doc"
 
 
@@ -198,6 +202,8 @@ def create_purchase(user, kind, data):
              "created_at": B.now_msk().isoformat(), "paid_at": None, "delivered_at": None, "email": None,
              "rating": None}
     B.partners.apply_to_order(order, user["id"], promo)
+    if kind == "momset" and A.web_auth.is_web(user):
+        order["channel"] = "web"   # гость сайта: выдача без Telegram (кредиты + письмо со ссылкой)
     B.save_order(order)
     return order
 
@@ -210,8 +216,11 @@ def purchase_state(order):
            "test": bool(order.get("is_test"))}
     if done and kind == "doc":
         out["downloadUrl"] = A.signed(order["order_id"], f"/doc/{order['order_id']}/file.pdf")
-    if done and kind == "pack":
+    if done and kind in ("pack", "momset"):
         out["credits"] = (B.get_client(order["chat_id"]) or {}).get("credits", 0)
+    if done and kind == "momset":
+        out["files"] = [{**f, "url": A.signed(order["order_id"], f"/purchases/{order['order_id']}/file/{f['key']}.pdf")}
+                        for f in B.PDFP.mom_files(order)]
     return out
 
 
@@ -236,7 +245,32 @@ def routes_purchases():
     @A.endpoint("/momset", auth=False)
     def momset_info():
         """Набор «Для мамы»: состав, цена и честная выгода. MOM_SET выключен: enabled=false, сайт блок не показывает."""
-        return B.PDFP.mom_info()
+        out = B.PDFP.mom_info()
+        user = A.current_user(required=False)
+        if user:
+            out["myCredits"] = (B.get_client(user["id"]) or {}).get("credits", 0)
+        return out
+
+    @A.endpoint("/momset/pay", methods=("POST",))
+    def momset_pay(user):
+        if not B.PDFP.mom_enabled():
+            raise A.err("momset_unavailable", "Этот набор сейчас недоступен.", 409)
+        data = A.body()
+        order = create_purchase(user, "momset", data)
+        return A.checkout(user, order, data)
+
+    @A.endpoint("/purchases/<order_id>/file/<key>.pdf", auth="sig")
+    def momset_file(order_id, key, user):
+        """PDF набора по подписанной ссылке: только после оплаты и только владельцу."""
+        order = B.get_order(order_id) if A.SAFE_ID.match(order_id or "") else None
+        if (not order or not B.PDFP.is_mom(order) or order.get("status") != "done" or key not in B.PDFP.MOM_FILES
+                or (user and order.get("chat_id") != user["id"]) or not os.path.exists(B.PDFP.file_path(key))):
+            raise A.err("not_found", "Файл станет доступен после оплаты набора.", 404)
+        with open(B.PDFP.file_path(key), "rb") as f:
+            data = f.read()
+        return A.Response(data, 200, mimetype="application/pdf",
+                          headers={"Content-Disposition": f'attachment; filename="{B.PDFP.PRODUCTS[key]["file"]}"',
+                                   "Cache-Control": "private, max-age=300"})
 
     @A.endpoint("/doc", auth=False)
     def doc_info():
@@ -294,7 +328,7 @@ def routes_purchases():
     def my_purchases(user):
         items = []
         for o in sorted(B.client_orders(user["id"]), key=lambda x: x.get("created_at", ""), reverse=True):
-            if o.get("product") in (B.OCC.PACK["key"], B.OCC.DOC["key"]) and o.get("status") in ("pending", "done") \
+            if o.get("product") in (B.OCC.PACK["key"], B.OCC.DOC["key"], B.PDFP.MOM_KEY) and o.get("status") in ("pending", "done") \
                     and not o.get("hidden_by_client"):
                 st = purchase_state(o)
                 items.append({"orderId": st["orderId"], "kind": st["kind"], "title": shop_item(st["kind"])["title"],
@@ -351,7 +385,7 @@ def routes_voice():
     def voice_toggle(order_id, user):
         """До оплаты: включить или убрать озвучку (+100 ₽ к сумме)."""
         d = A.own_draft(order_id, user)
-        if d.get("synthetic") or d.get("group") or d.get("bundle"):
+        if d.get("synthetic") or d.get("group"):
             raise A.err("voice_not_allowed", "Для этого письма озвучку до оплаты добавить нельзя.", 409)
         order = A.real_order(d)
         if order and order.get("status") == "done":

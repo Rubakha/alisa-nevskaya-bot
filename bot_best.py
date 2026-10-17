@@ -241,6 +241,8 @@ def pain_meta(order_or_key):
         return {"icon": OCC.PACK["icon"], "title": OCC.PACK["title"]}
     if key == OCC.DOC["key"]:
         return {"icon": OCC.DOC["icon"], "title": OCC.DOC["title"]}
+    if key == PDFP.MOM_KEY:
+        return {"icon": "🎁", "title": "Набор «Для мамы»"}
     if key in PDFP.PRODUCTS:
         return {"icon": PDFP.PRODUCTS[key]["icon"], "title": PDFP.PRODUCTS[key]["title"]}
     return PAIN_META.get(key, {"icon": "•", "title": key or "—"})
@@ -689,6 +691,8 @@ def start_in_app(chat_id, user, parts, greet, invited, referred_by):
         send_free_pdf(chat_id)
     elif param == "papa_pdf":
         occ_doc_order(chat_id, user)
+    elif param == "momset":   # набор «Для мамы»: при выключенном флаге молчим
+        PDFP.open_mom_order(chat_id, user)
     elif PDFP.start_key(param):   # PDF: при выключенном флаге молчим; ig_pdfq_<ролик> — с меткой канала
         PDFP.open_order(chat_id, user, PDFP.start_key(param))
 
@@ -783,6 +787,8 @@ def cmd_start(message):
         send_free_pdf(chat_id)
     elif len(parts) == 2 and parts[1] == "papa_pdf":
         occ_doc_order(chat_id, message.from_user)
+    elif len(parts) == 2 and parts[1] == "momset":
+        PDFP.open_mom_order(chat_id, message.from_user)
     elif len(parts) == 2 and PDFP.start_key(parts[1]):
         PDFP.open_order(chat_id, message.from_user, PDFP.start_key(parts[1]))
     elif len(parts) == 2 and parts[1] == "b2b":  # корпоративная линейка
@@ -1141,7 +1147,7 @@ def order_description(order):
     if PDFP.of_order(order):
         return PDFP.invoice_description(order)
     if PDFP.is_mom(order):
-        return f"Письмо, открытка и два PDF-гида, сразу после оплаты. Заказ {order_id}."
+        return f"2 письма с открыткой и PDF-гиды, без срока. Заказ {order_id}."
     if order.get("product") == OCC.DOC["key"]:
         return f"PDF «Разговор с папой», сразу после оплаты. Заказ {order_id}."
     if order.get("product"):
@@ -1409,7 +1415,7 @@ def send_reminders(now=None):
     if not 10 <= now.hour < 21:
         return
     for o in all_orders():
-        if (o.get("status") != "pending" or o.get("reminded_at") or o.get("product") in (OCC.PACK["key"], OCC.DOC["key"]) or PDFP.of_order(o)
+        if (o.get("status") != "pending" or o.get("reminded_at") or o.get("product") in (OCC.PACK["key"], OCC.DOC["key"], PDFP.MOM_KEY) or PDFP.of_order(o)
                 or o.get("created_at", "") < REMINDERS_SINCE):
             continue
         try:
@@ -1576,6 +1582,11 @@ def fulfill_order(chat_id, order_id, charge_id, email):
 
     if order.get("channel") == "web":  # гость сайта без Telegram: письмо на сайте, на почту уходит ссылка
         import web_auth
+        if PDFP.is_mom(order):  # набор «Для мамы»: кредиты на два письма, PDF скачиваются на странице возврата
+            try:
+                PDFP.grant_mom_credits(order)
+            except Exception as exc:
+                log.error("mom set credits %s: %s", order_id, exc)
         try:
             web_auth.on_paid(sys.modules[__name__], order)
         except Exception as exc:
@@ -1594,6 +1605,11 @@ def fulfill_order(chat_id, order_id, charge_id, email):
 
     if PDFP.of_order(order):  # «20 вопросов» / «10 писем»: файл из assets
         PDFP.deliver(chat_id, order)
+        return
+
+    if PDFP.is_mom(order):  # набор «Для мамы»: 2 кредита на письма и два PDF файлами
+        PDFP.deliver_mom(chat_id, order)
+        notify_admin_paid(order)
         return
 
     if order.get("product") == OCC.DOC["key"]:
@@ -1630,11 +1646,6 @@ def fulfill_order(chat_id, order_id, charge_id, email):
                                   + (f"Чек придёт на {esc(order['email'])}" if order.get("email") else ""),
                          parse_mode="HTML")
         occ_deliver(chat_id, order)
-        if PDFP.is_mom(order):  # набор «Для мамы»: следом за письмом и открыткой два PDF
-            try:
-                PDFP.deliver_mom(chat_id, order)
-            except Exception as exc:
-                log.error("mom set deliver %s: %s", order_id, exc)
         notify_admin_paid(order)
         return
 
@@ -1729,7 +1740,7 @@ def cabinet_view(chat_id):
         ))
     for btn in PDFP.again_buttons(shown_done)[:3]:
         kb.add(btn)
-    for o in [o for o in shown_done if o.get("product") != OCC.PACK["key"] and not PDFP.of_order(o)][:5]:
+    for o in [o for o in shown_done if o.get("product") not in (OCC.PACK["key"], PDFP.MOM_KEY) and not PDFP.of_order(o)][:5]:
         meta = pain_meta(o)
         kb.add(
             types.InlineKeyboardButton(
@@ -1997,7 +2008,7 @@ def occ_open_product(chat_id, key, call=None):
     kb = types.InlineKeyboardMarkup(row_width=1)
     kb.add(types.InlineKeyboardButton("✍️ Начать", callback_data=f"occ:go:{key}"))
     if key == PDFP.MOM_OCCASION:
-        PDFP.mom_button(kb)  # набор «Для мамы»: письмо + открытка + два PDF (MOM_SET=1)
+        PDFP.mom_button(kb)  # набор «Для мамы»: 2 письма + 2 открытки + 2 PDF (MOM_SET=1)
     kb.add(types.InlineKeyboardButton("↩️ Все письма", callback_data="occ:catalog"))
     if call:
         safe_edit(call, occ_product_text(key), kb)
@@ -2028,11 +2039,6 @@ def occ_go(call):
     chat_id = call.message.chat.id
     key = call.data.split(":", 2)[2]
     bot.answer_callback_query(call.id)
-    occ_begin(chat_id, key)
-
-
-def occ_begin(chat_id, key, extra=None):
-    """Старт анкеты письма. extra: поля состояния для набора (цена и bundle)."""
     if key not in OCC.PRODUCTS:
         return occ_open_catalog(chat_id)
     if pending_count(chat_id) >= MAX_PENDING:
@@ -2043,25 +2049,11 @@ def occ_begin(chat_id, key, extra=None):
             f"Заказ <code>{pending['order_id']}</code>\n\nМожно оплатить его или отменить.",
             parse_mode="HTML", reply_markup=pending_markup(pending["order_id"]))
         return
-    STATES[chat_id] = {"step": "occ_q", "product": key, "idx": 0, "qa": [], "data": {}, **(extra or {})}
+    STATES[chat_id] = {"step": "occ_q", "product": key, "idx": 0, "qa": [], "data": {}}
     p = OCC.PRODUCTS[key]
-    title = "Набор «Для мамы»: письмо про маму" if (extra or {}).get("bundle") else p["title"]
-    bot.send_message(chat_id, f"{p['icon']} Пишем: <b>{title}</b>. Поехали 🤍",
+    bot.send_message(chat_id, f"{p['icon']} Пишем: <b>{p['title']}</b>. Поехали 🤍",
                      parse_mode="HTML")
     occ_ask(chat_id)
-
-
-@bot.callback_query_handler(func=lambda c: (c.data or "").startswith("momset:"))
-def momset_cb(call):
-    """Набор «Для мамы»: страница состава и старт анкеты с ценой набора. Флаг MOM_SET выключен: молчим."""
-    chat_id = call.message.chat.id
-    bot.answer_callback_query(call.id)
-    if not PDFP.mom_enabled():
-        return
-    if call.data == "momset:info":
-        safe_edit(call, PDFP.mom_text(), PDFP.mom_markup())
-    elif call.data == "momset:go":
-        occ_begin(chat_id, PDFP.MOM_OCCASION, PDFP.mom_state_extra())
 
 
 def occ_ask(chat_id):
@@ -2180,7 +2172,7 @@ def occ_masked_preview(letter):
 
 def occ_preview_markup(state):
     p = OCC.PRODUCTS[state["product"]]
-    credits = 0 if state.get("group") or state.get("voice") or state.get("bundle") else (get_client(state.get("chat_id", 0)) or {}).get("credits", 0)
+    credits = 0 if state.get("group") or state.get("voice") else (get_client(state.get("chat_id", 0)) or {}).get("credits", 0)
     kb = types.InlineKeyboardMarkup(row_width=1)
     if credits:
         kb.add(types.InlineKeyboardButton(f"🎁 Забрать по набору (осталось {credits})",
@@ -2204,8 +2196,6 @@ def occ_preview_text(state):
     return (occ_masked_preview(state["letter"])
             + "\n\n🔒 Продолжение письма, чистая открытка без надписи «превью» "
               "и ссылка-конверт для получателя — после оплаты."
-            + ("\n\n🎁 В набор «Для мамы» входят ещё два PDF: «10 писем, которые стоит написать близким» "
-               "и «20 вопросов маме и папе». Они придут файлами следом за письмом." if state.get("bundle") else "")
             + (f"\n\n{lines}" if lines else ""))
 
 
@@ -2379,8 +2369,6 @@ def occ_make_order(chat_id, user, state, status="pending", price=None):
         "email": None,
         "rating": None,
     }
-    if state.get("bundle") == PDFP.MOM_KEY:
-        order["bundle"] = PDFP.MOM_KEY  # набор «Для мамы»: после письма и открытки выдаём два PDF
     if calendar_reminders.is_from_reminder(chat_id):
         order["from_reminder"] = True  # человек пришёл с напоминания календаря (метрика)
     if price is None:  # обычная покупка: скидки (одна, наибольшая) и баланс; набор/бесплатно — без них
@@ -2421,7 +2409,7 @@ def occ_credit(call):
     state = STATES.get(chat_id) or {}
     profile = get_client(chat_id) or {}
     bot.answer_callback_query(call.id)
-    if state.get("step") != "occ_paywall" or profile.get("credits", 0) < 1 or state.get("group") or state.get("voice") or state.get("bundle"):
+    if state.get("step") != "occ_paywall" or profile.get("credits", 0) < 1 or state.get("group") or state.get("voice"):
         safe_edit(call, f"Не получилось — начни заново: «{OCC_BUTTON}».")
         return
     profile["credits"] -= 1
