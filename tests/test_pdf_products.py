@@ -222,4 +222,9 @@ cap = [s for s in SENT if s[0] == "send_document"][0][2]["caption"]
 assert "Оплата" not in cap and "подарок" in cap, cap
 os.environ.pop("PDF_QUESTIONS_PRICE_RUB")
 
+# метки каналов в ссылке на гид: ig_pdfq_<ролик> выдаёт «20 вопросов», источник сохраняется в профиле
+assert P.start_key("pdf_questions") == "pdf_questions" and P.start_key("pdf_letters") == "pdf_letters"
+assert P.start_key("ig_pdfq_skazhi-emu") == "pdf_questions" and P.start_key("tg_pdfl") == "pdf_letters"
+assert P.start_key("ig_papa") is None and P.start_key("xx_pdfq") is None and P.start_key("") is None and P.start_key(None) is None
+
 print("OK: pdf products")

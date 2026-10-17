@@ -12,6 +12,7 @@ fulfill_order -> отправка файла из assets/. Своей оплат
 Подключается в bot_best.py: pdf_products.register(sys.modules[__name__]).
 """
 import os
+import re
 
 from telebot import types
 
@@ -54,6 +55,19 @@ PRODUCTS = {
         "followup_btn": "✉️ Написать письмо про своего человека", "followup_occ": None,
     },
 }
+
+
+_TAGGED = re.compile(r"^(ig|vk|yt|pin|tg|ad|mx)_pdf([ql])(?:_[a-z0-9-]{1,24})?$")
+
+
+def start_key(param):
+    """Ключ PDF-товара по параметру /start: `pdf_questions`, `pdf_letters` или с меткой канала `ig_pdfq_<ролик>` (q = 20 вопросов, l = 10 писем).
+    Метка остаётся в профиле как источник первого захода (канал виден в /sources), а гид выдаётся как обычно."""
+    pr = (param or "").strip().lower()
+    if pr in PRODUCTS:
+        return pr
+    m = _TAGGED.match(pr)
+    return {"q": "pdf_questions", "l": "pdf_letters"}[m.group(2)] if m else None
 
 
 def enabled():

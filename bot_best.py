@@ -689,8 +689,8 @@ def start_in_app(chat_id, user, parts, greet, invited, referred_by):
         send_free_pdf(chat_id)
     elif param == "papa_pdf":
         occ_doc_order(chat_id, user)
-    elif param in PDFP.PRODUCTS:   # платные PDF: при выключенном флаге молчим
-        PDFP.open_order(chat_id, user, param)
+    elif PDFP.start_key(param):   # PDF: при выключенном флаге молчим; ig_pdfq_<ролик> — с меткой канала
+        PDFP.open_order(chat_id, user, PDFP.start_key(param))
 
 
 @bot.message_handler(commands=["start"])
@@ -783,8 +783,8 @@ def cmd_start(message):
         send_free_pdf(chat_id)
     elif len(parts) == 2 and parts[1] == "papa_pdf":
         occ_doc_order(chat_id, message.from_user)
-    elif len(parts) == 2 and parts[1] in PDFP.PRODUCTS:
-        PDFP.open_order(chat_id, message.from_user, parts[1])
+    elif len(parts) == 2 and PDFP.start_key(parts[1]):
+        PDFP.open_order(chat_id, message.from_user, PDFP.start_key(parts[1]))
     elif len(parts) == 2 and parts[1] == "b2b":  # корпоративная линейка
         b2b.open_menu(chat_id)
     elif len(parts) == 2 and parts[1] == "occ":
