@@ -129,9 +129,23 @@ def bearer(request):
     return head[7:].strip() if head.lower().startswith("bearer ") else ""
 
 
+GUEST_BASE = 9_500_000_000_000
+GUEST_RE = re.compile(r"^g_[a-f0-9]{32}$")
+
+
+def guest_user(token):
+    """Гость без входа: токен `g_`+32 hex из localStorage браузера (docs/GUEST_API.md сайта). id выводится из токена."""
+    if not GUEST_RE.match(token or ""):
+        return None
+    n = int(hashlib.sha256(b"guest:" + token.encode()).hexdigest()[:10], 16) % 10**12
+    return {"id": GUEST_BASE + n, "first_name": "", "last_name": "", "username": "", "channel": "web", "guest": True}
+
+
 def user_from_request(B, request):
     token = bearer(request)
-    return parse_token(B, token)[0] if token else None
+    if token:
+        return parse_token(B, token)[0]
+    return guest_user(request.headers.get("X-Guest-Token", ""))
 
 
 # ── почта ────────────────────────────────────────────────────────
@@ -212,6 +226,43 @@ def register(A, B):
             raise A.err("bad_code", "Код не подошёл. Проверь цифры.", 400)
         acc = account_for(email)
         return {"token": make_token(B, acc["id"]), "user": {"id": acc["id"], "email": mask(email), "channel": "web"}}
+
+    @A.endpoint("/guest/orders", methods=("POST",))
+    def guest_orders(user):
+        """Оплата гостя: проверки (e-mail, согласие, адрес возврата), потом обычная оплата заказа."""
+        if not is_web(user):
+            raise A.err("unauthorized", "Нужен гостевой токен.", 401)
+        data = A.body()
+        email = norm_email(data.get("email"))
+        if not email:
+            raise A.err("bad_email", "Проверь адрес: он выглядит неверно.")
+        consent = data.get("consent") if isinstance(data.get("consent"), dict) else {}
+        if not (consent.get("offer") is True and consent.get("privacy") is True):
+            raise A.err("consent_required", "Нужно согласие с офертой и политикой.")
+        ret = str(data.get("returnUrl") or "")
+        if ret:
+            base = ret.split("/pay/")[0].split("?")[0].rstrip("/")
+            allowed = {os.getenv("MINIAPP_RETURN_URL", A.DEFAULT_ORIGIN).rstrip("/"), *A.origins()}
+            if base not in allowed:
+                raise A.err("bad_return_url", "Неверный адрес возврата.")
+        order_id = str(data.get("orderId") or "")
+        d = A.own_draft(order_id, user)
+        d["email"] = email
+        d["consent"] = {"offer": True, "privacy": True, "at": str(consent.get("at") or "")[:40],
+                        "version": str(consent.get("version") or "")[:40], "ts": int(time.time())}
+        A.save_draft(d)
+        account_for(email)
+        resp = A.APP.view_functions["api_pay"](order_id=order_id)   # та же оплата, что у /orders/<id>/pay
+        if resp.status_code != 200:
+            return resp
+        out = json.loads(resp.get_data(as_text=True))
+        order = B.get_order(order_id)
+        if order:
+            order["email"] = email
+            order["consent"] = d["consent"]
+            B.save_order(order)
+        return {"orderId": order_id, "price": out.get("price"), "paymentUrl": out.get("paymentUrl", ""),
+                "paid": bool(out.get("paid"))}
 
     @A.endpoint("/auth/me", auth=True)
     def auth_me(user):

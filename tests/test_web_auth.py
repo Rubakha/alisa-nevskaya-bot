@@ -112,6 +112,30 @@ tok3 = post("/auth/email/verify", {"email": "other@example.com", "code": last_co
 r = client.get(API + f"/orders/{oid}", headers={"Authorization": "Bearer " + tok3})
 check("чужой гость заказ не видит", r.status_code in (403, 404))
 
+GH = {"X-Guest-Token": "g_" + "ab12" * 8}
+r = client.post(API + "/orders", json={"product": "birthday", "answers": ANSWERS}, headers=GH)
+gid = (r.get_json() or {}).get("orderId")
+check("гостевой токен создаёт заказ", r.status_code == 200 and gid)
+check("плохой токен → 401", client.post(API + "/orders", json={}, headers={"X-Guest-Token": "zzz"}).status_code == 401)
+r = client.get(API + f"/orders/{gid}", headers={"X-Guest-Token": "g_" + "cd34" * 8})
+check("чужой гостевой токен заказ не видит", r.status_code in (403, 404))
+d = A.load_draft(gid)
+d["letter"] = "Катя, привет.\n\nПисьмо."
+A.save_draft(d)
+B.YOOKASSA_SHOP_ID, B.YOOKASSA_SECRET_KEY = "s", "k"
+B.yk_create = lambda order, email, ret: "https://pay.example/x"
+body = {"orderId": gid, "email": "Guest@Mail.ru", "returnUrl": "https://alisa-letters.pages.dev/pay/return/?paid=" + gid,
+        "consent": {"offer": True, "privacy": True, "at": "2026-10-17T10:00:00Z", "version": "draft-2026-10"}}
+r = client.post(API + "/guest/orders", json={**body, "consent": {"offer": True}}, headers=GH)
+check("без согласия → consent_required", r.status_code == 400 and r.get_json()["error"]["code"] == "consent_required")
+r = client.post(API + "/guest/orders", json={**body, "returnUrl": "https://evil.example/pay/return/"}, headers=GH)
+check("чужой returnUrl → bad_return_url", r.get_json()["error"]["code"] == "bad_return_url")
+r = client.post(API + "/guest/orders", json=body, headers=GH)
+check("оплата гостя: ссылка ЮKassa", r.status_code == 200 and r.get_json().get("paymentUrl") == "https://pay.example/x"
+      and r.get_json()["price"] > 0)
+check("e-mail и согласие сохранены в заказе", (B.get_order(gid) or {}).get("email") == "guest@mail.ru"
+      and (B.get_order(gid) or {}).get("consent", {}).get("version") == "draft-2026-10")
+
 sent = []
 B.bot.send_message = lambda *a, **k: sent.append(a)
 B.bot.send_document = B.bot.send_photo = B.bot.send_message
