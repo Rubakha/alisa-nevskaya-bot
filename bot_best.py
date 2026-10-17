@@ -35,6 +35,7 @@ import constructor
 import b2b
 import group_letters
 import occasions as OCC
+import pdf_products as PDFP
 import partners
 import postcards
 import sources
@@ -240,6 +241,8 @@ def pain_meta(order_or_key):
         return {"icon": OCC.PACK["icon"], "title": OCC.PACK["title"]}
     if key == OCC.DOC["key"]:
         return {"icon": OCC.DOC["icon"], "title": OCC.DOC["title"]}
+    if key in PDFP.PRODUCTS:
+        return {"icon": PDFP.PRODUCTS[key]["icon"], "title": PDFP.PRODUCTS[key]["title"]}
     return PAIN_META.get(key, {"icon": "•", "title": key or "—"})
 
 
@@ -686,6 +689,8 @@ def start_in_app(chat_id, user, parts, greet, invited, referred_by):
         send_free_pdf(chat_id)
     elif param == "papa_pdf":
         occ_doc_order(chat_id, user)
+    elif param in PDFP.PRODUCTS:   # платные PDF: при выключенном флаге молчим
+        PDFP.open_order(chat_id, user, param)
 
 
 @bot.message_handler(commands=["start"])
@@ -778,6 +783,8 @@ def cmd_start(message):
         send_free_pdf(chat_id)
     elif len(parts) == 2 and parts[1] == "papa_pdf":
         occ_doc_order(chat_id, message.from_user)
+    elif len(parts) == 2 and parts[1] in PDFP.PRODUCTS:
+        PDFP.open_order(chat_id, message.from_user, parts[1])
     elif len(parts) == 2 and parts[1] == "b2b":  # корпоративная линейка
         b2b.open_menu(chat_id)
     elif len(parts) == 2 and parts[1] == "occ":
@@ -1131,6 +1138,8 @@ def order_description(order):
     order_id = order["order_id"]
     if order.get("product") == OCC.PACK["key"]:
         return f"3 письма с открыткой, без срока. Заказ {order_id}."
+    if PDFP.of_order(order):
+        return PDFP.invoice_description(order)
     if order.get("product") == OCC.DOC["key"]:
         return f"PDF «Разговор с папой», сразу после оплаты. Заказ {order_id}."
     if order.get("product"):
@@ -1155,12 +1164,12 @@ def send_order_invoice(chat_id, order):
     try:
         bot.send_invoice(
             chat_id=chat_id,
-            title=f"Письмо от Алисы · {pain_meta(order)['title']}"[:32],
+            title=(PDFP.item_title(order) or f"Письмо от Алисы · {pain_meta(order)['title']}")[:32],
             description=order_description(order),
             invoice_payload=order_id,
             provider_token=YOOKASSA_PROVIDER_TOKEN,
             currency="RUB",
-            prices=[LabeledPrice(label="Письмо", amount=order["price_rub"] * 100)],  # в копейках
+            prices=[LabeledPrice(label="PDF" if PDFP.of_order(order) else "Письмо", amount=order["price_rub"] * 100)],  # в копейках
             need_email=True,
             send_email_to_provider=True,  # ЮKassa требует чек 54-ФЗ
         )
@@ -1300,7 +1309,7 @@ def yk_create(order, email, return_url):
         payload["receipt"] = {
             "customer": {"email": email},
             "items": [{
-                "description": f"Письмо от Алисы · {pain_meta(order)['title']}"[:128],
+                "description": (PDFP.item_title(order) or f"Письмо от Алисы · {pain_meta(order)['title']}")[:128],
                 "quantity": "1.00",
                 "amount": {"value": price, "currency": "RUB"},
                 "vat_code": YOOKASSA_VAT_CODE,
@@ -1398,7 +1407,7 @@ def send_reminders(now=None):
     if not 10 <= now.hour < 21:
         return
     for o in all_orders():
-        if (o.get("status") != "pending" or o.get("reminded_at") or o.get("product") in (OCC.PACK["key"], OCC.DOC["key"])
+        if (o.get("status") != "pending" or o.get("reminded_at") or o.get("product") in (OCC.PACK["key"], OCC.DOC["key"]) or PDFP.of_order(o)
                 or o.get("created_at", "") < REMINDERS_SINCE):
             continue
         try:
@@ -1572,6 +1581,10 @@ def fulfill_order(chat_id, order_id, charge_id, email):
         b2b.on_paid(order)
         return
 
+    if PDFP.of_order(order):  # «20 вопросов» / «10 писем»: файл из assets
+        PDFP.deliver(chat_id, order)
+        return
+
     if order.get("product") == OCC.DOC["key"]:
         kb = types.InlineKeyboardMarkup(row_width=1)
         kb.add(types.InlineKeyboardButton("🎀 Письмо папе с открыткой", callback_data="occ:p:family"))
@@ -1698,7 +1711,9 @@ def cabinet_view(chat_id):
         kb.add(types.InlineKeyboardButton(
             f"🗑 Отменить {o['order_id']}", callback_data=f"cab:cancel:{o['order_id']}"
         ))
-    for o in [o for o in shown_done if o.get("product") != OCC.PACK["key"]][:5]:
+    for btn in PDFP.again_buttons(shown_done)[:3]:
+        kb.add(btn)
+    for o in [o for o in shown_done if o.get("product") != OCC.PACK["key"] and not PDFP.of_order(o)][:5]:
         meta = pain_meta(o)
         kb.add(
             types.InlineKeyboardButton(
@@ -1905,6 +1920,7 @@ def occ_catalog_markup():
         f"{OCC.PACK['icon']} {OCC.PACK['title']} · {OCC.PACK['price']}₽", callback_data="occ:pack"))
     kb.add(types.InlineKeyboardButton(
         f"{OCC.DOC['icon']} {OCC.DOC['title']} · {OCC.DOC['price']}₽", callback_data="occ:doc"))
+    PDFP.catalog_buttons(kb)  # «20 вопросов» и «10 писем» — только если PDF_PRODUCTS=1
     voice_flow.catalog_button(kb)  # «Голосовое письмо» — только если настроен ElevenLabs
     kb.add(types.InlineKeyboardButton(
         f"👥 Письмо от всех нас · {group_letters.GROUP_PRICE}₽", callback_data="grp:new"))
@@ -4254,6 +4270,7 @@ import compat_shop  # noqa: E402  разбор совместимости пар
 compat_shop.register(app, sys.modules[__name__])
 import miniapp_api  # noqa: E402  API v1 для Mini App (включается MINIAPP_API=1)
 miniapp_api.register(app, sys.modules[__name__])
+PDFP.register(sys.modules[__name__])  # PDF-товары (20 вопросов, 10 писем): выдача после оплаты, включается PDF_PRODUCTS=1
 
 
 # Ключ для /stats выводится из токена бота: локальный отчёт считает его так же,
