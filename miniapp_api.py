@@ -29,6 +29,7 @@ from types import SimpleNamespace
 from flask import Response, request
 
 import miniapp_share
+import web_auth
 
 B = None
 APP = None
@@ -154,6 +155,9 @@ def sig_ok(order_id):
 
 # ── авторизация и обёртка ручек ───────────────────────────────────
 def current_user(required=True):
+    user = web_auth.user_from_request(B, request)   # сайт без Telegram: Bearer-токен после входа по e-mail
+    if user:
+        return user
     user = miniapp_share.init_data_user(request.headers.get("X-Telegram-Init-Data", ""), B.TG_BOT_TOKEN)
     if not user and required:
         raise err("unauthorized", "Открой приложение из Telegram — так я пойму, кто ты.", 401)
@@ -299,7 +303,7 @@ def checkout(user, order, data):
         raise err("payment_unavailable", "Оплата в приложении сейчас недоступна — оплати в боте.", 503,
                   botUrl=f"https://t.me/{B.BOT_USERNAME}")
     email = str(data.get("email") or "").strip()[:120] or order.get("email") or \
-        (B.get_client(user["id"]) or {}).get("email")
+        (B.get_client(user["id"]) or {}).get("email") or (web_auth.email_of(user["id"]) if web_auth.is_web(user) else "")
     if B.YOOKASSA_RECEIPT and not (email and B.EMAIL_RE.match(email)):
         raise err("email_required", "Укажи почту — на неё придёт чек.", 400)
     try:
@@ -744,6 +748,7 @@ def register(app, bot_module):
     routes()
     import miniapp_api_v2   # v2: поддержка, подписки, набор, PDF, голос, группы (флаг MINIAPP_API_V2)
     miniapp_api_v2.register(sys.modules[__name__], B)
+    web_auth.register(sys.modules[__name__], B)
     B.log.info("miniapp api v1: включён, origins=%s", ",".join(sorted(origins())))
 
 
@@ -755,7 +760,7 @@ def cors(app):
             if origin in origins():
                 resp.headers["Access-Control-Allow-Origin"] = origin
                 resp.headers["Vary"] = "Origin"
-                resp.headers["Access-Control-Allow-Headers"] = "X-Telegram-Init-Data, Content-Type"
+                resp.headers["Access-Control-Allow-Headers"] = "X-Telegram-Init-Data, X-Guest-Token, Authorization, Content-Type"
                 resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
                 resp.headers["Access-Control-Max-Age"] = "600"
         return resp
@@ -1080,6 +1085,9 @@ def routes():
             d["promo"] = promo
             order = B.occ_make_order(user["id"], tg_user(user), {**d, "qa": [tuple(x) for x in d["qa"]],
                                                                  "promo": promo, "price": base_price(d)})
+            if web_auth.is_web(user):
+                order["channel"] = "web"   # выдача без Telegram: bot_best.fulfill_order → web_auth.on_paid
+                B.save_order(order)
             d["order_sig"] = sig_now
             if d.get("source"):
                 order["source"] = d["source"]   # отчёт /sources считает заказы по этой метке
