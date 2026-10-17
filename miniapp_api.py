@@ -1053,6 +1053,33 @@ def routes():
         return Response(B.occ_postcard(order), 200, mimetype="image/jpeg",
                         headers={"Cache-Control": "private, max-age=300"})
 
+    @endpoint("/orders/<order_id>/bundle", methods=("PUT",))
+    def bundle_toggle(order_id, user):
+        """До оплаты: превратить письмо «Маме, папе, бабушке» в набор «Для мамы» (590 ₽) или вернуть обычное письмо. Озвучка при этом снимается."""
+        d = own_draft(order_id, user)
+        if d.get("synthetic") or d.get("group") or d.get("product") != B.PDFP.MOM_OCCASION:
+            raise err("bundle_unavailable", "Для этого письма набор недоступен.", 409)
+        order = real_order(d)
+        if order and order.get("status") == "done":
+            raise err("paid", "Письмо уже оплачено.", 409)
+        if order and order.get("status") == "pending" and order.get("yk_payment_id"):
+            raise err("locked", "Оплата уже начата. Заверши её или отмени заказ.", 409)
+        enabled = body().get("enabled")
+        if enabled is True:
+            if not B.PDFP.mom_enabled():
+                raise err("bundle_unavailable", "Этот набор сейчас недоступен.", 409)
+            d.pop("voice", None)
+            d.pop("voice_gender", None)
+            d.update(B.PDFP.mom_state_extra())
+        elif enabled is False:
+            d.pop("bundle", None)
+            d.pop("price", None)
+        else:
+            raise err("bad_request", "enabled: true или false.", 400)
+        save_draft(d)
+        q = quote(d)
+        return {"ok": True, "price": q["payable"], "bundle": B.PDFP.MOM_KEY if d.get("bundle") else None}
+
     @endpoint("/orders/<order_id>/bundle/<key>.pdf", auth="sig")
     def bundle_file(order_id, key, user):
         """Файл набора «Для мамы» по подписанной ссылке: только после оплаты и только владельцу заказа."""
@@ -1076,8 +1103,11 @@ def routes():
         if not code:
             raise err("bad_request", "Введи промокод.", 400)
         ok, res = B.partners.check_promo(user["id"], code)
-        q = B.partners.quote(user["id"], p["price"], code if ok else None)
-        return {"valid": ok, "applied": bool(q.get("promo_code")), "price": q["payable"], "basePrice": p["price"],
+        base = p["price"]
+        if data.get("bundle") == B.PDFP.MOM_KEY and data.get("product") == B.PDFP.MOM_OCCASION and B.PDFP.mom_enabled():
+            base = B.PDFP.mom_price()   # промокод на набор «Для мамы»: скидка считается от цены набора
+        q = B.partners.quote(user["id"], base, code if ok else None)
+        return {"valid": ok, "applied": bool(q.get("promo_code")), "price": q["payable"], "basePrice": base,
                 "discount": q["discount"], "label": q["label"],
                 "message": "" if ok else res}
 
@@ -1098,7 +1128,7 @@ def routes():
             ok, res = B.partners.apply_promo_code(user["id"], promo)   # как «Есть промокод» в боте (и привязка партнёра)
             if not ok:
                 raise err("bad_promo", res, 400)
-        sig_now = [d["letter"], promo, bool(d.get("voice")), d.get("voice_gender")]
+        sig_now = [d["letter"], promo, bool(d.get("voice")), d.get("voice_gender")] + ([d["bundle"]] if d.get("bundle") else [])
         if order and order.get("status") == "pending" and (d.get("synthetic") or d.get("order_sig") == sig_now):
             pass   # повторное «Оплатить» или заказ, созданный в боте, — тот же заказ
         else:

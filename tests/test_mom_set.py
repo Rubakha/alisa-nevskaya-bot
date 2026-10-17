@@ -291,6 +291,31 @@ call("post", f"/orders/{o3}/preview", user=602)
 s3 = j(call("get", f"/orders/{o3}", user=602))
 assert "bundle" not in s3 and s3["price"] == 199
 
+# переключатель набора до оплаты (блок «Дополнения» на сайте)
+r = call("put", f"/orders/{o3}/bundle", user=602, data={"enabled": True})
+assert r.status_code == 200 and j(r)["price"] == 590 and j(r)["bundle"] == "mom_set", j(r)
+s3 = j(call("get", f"/orders/{o3}", user=602))
+assert s3["bundle"] == "mom_set" and s3["price"] == 590 and s3["creditsAvailable"] == 0
+B.partners.save_promo({"code": "MOM10", "kind": "percent", "value": 10, "active": True, "used": [], "limit": 0})
+pc = j(call("post", "/promo/check", user=602, data={"code": "MOM10", "product": "family", "bundle": "mom_set"}))
+assert pc["valid"] and pc["basePrice"] == 590 and pc["price"] == 531, pc
+pc = j(call("post", "/promo/check", user=602, data={"code": "MOM10", "product": "family"}))
+assert pc["basePrice"] == 199, "без набора промокод считается от цены письма"
+r = call("put", f"/orders/{o3}/bundle", user=602, data={"enabled": False})
+assert j(r)["price"] == 199 and j(r)["bundle"] is None
+assert "bundle" not in j(call("get", f"/orders/{o3}", user=602))
+assert call("put", f"/orders/{o3}/bundle", user=602, data={"enabled": "да"}).status_code == 400
+assert call("put", f"/orders/{o3}/bundle", user=603, data={"enabled": True}).status_code == 404, "чужой заказ"
+o4 = j(call("post", "/orders", user=604, data={"product": "birthday", "answers": {"name": "К", "who": "п", "age": "3", "details": "д", "tone": "warm", "sign": "С"}}))["orderId"]
+assert call("put", f"/orders/{o4}/bundle", user=604, data={"enabled": True}).status_code == 409, "набор только у повода family"
+# включили, оплатили (заказ 590), после начала оплаты переключать нельзя
+call("put", f"/orders/{o3}/bundle", user=602, data={"enabled": True})
+YK.update(status="pending", paid=False)
+r = call("post", f"/orders/{o3}/pay", user=602, data={})
+assert j(r)["price"] == 590 and B.get_order(o3)["price_rub"] == 590 and B.get_order(o3)["bundle"] == "mom_set"
+r = call("put", f"/orders/{o3}/bundle", user=602, data={"enabled": False})
+assert r.status_code == 409 and j(r)["error"]["code"] == "locked"
+
 # гость сайта: письмо на почту содержит упоминание PDF
 sent_mail = []
 import web_auth  # noqa: E402
