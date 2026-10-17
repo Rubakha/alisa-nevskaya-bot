@@ -8,6 +8,7 @@ fulfill_order -> отправка файла из assets/. Своей оплат
   PDF_PRODUCTS            1 = включить
   PDF_QUESTIONS_PRICE_RUB цена «20 вопросов», ₽ (по умолчанию 199)
   PDF_LETTERS_PRICE_RUB   цена «10 писем», ₽ (по умолчанию 249)
+  PDF_FOLLOWUP            0 = не слать мягкое сообщение «теперь напиши письмо» после выдачи файла (по умолчанию шлём)
 Подключается в bot_best.py: pdf_products.register(sys.modules[__name__]).
 """
 import os
@@ -27,7 +28,14 @@ PRODUCTS = {
                   "12 страниц, формат А5, приходит сразу после оплаты."),
         "caption": ("✅ Оплата прошла. Твои «20 вопросов маме и папе» 🤍\n"
                     "Начни с одного вечера и двух-трёх вопросов. Остальные подождут."),
+        "caption_free": ("🎁 Твои «20 вопросов маме и папе» — подарок от меня 🤍\n"
+                         "Начни с одного вечера и двух-трёх вопросов. Остальные подождут."),
         "next_label": "🎀 Письмо маме или папе с открыткой", "next_cb": "occ:p:family",
+        "followup": ("Теперь про письмо 🤍\n\n"
+                     "Когда мама или папа ответят хотя бы на один вопрос, у тебя появятся живые детали: "
+                     "привычка, словечко, случай из детства. Из них получается письмо про этого человека, а не «с праздником».\n\n"
+                     "Расскажи мне про своего человека, я соберу письмо и открытку. Можно не сегодня, кнопка будет здесь."),
+        "followup_btn": "✉️ Написать письмо про своего человека", "followup_occ": "family",
     },
     "pdf_letters": {
         "key": "pdf_letters", "icon": "💌", "title": "10 писем близким (PDF)",
@@ -39,6 +47,11 @@ PRODUCTS = {
         "caption": ("✅ Оплата прошла. Твои «10 писем, которые стоит написать близким» 🤍\n"
                     "Начни с одной фразы: «Я заметил, что ты всегда…»"),
         "next_label": "🎀 Письмо с открыткой — соберу его с тобой", "next_cb": "occ:catalog",
+        "followup": ("Теперь твоя очередь 🤍\n\n"
+                     "Выбери одного человека из десяти и расскажи мне про него: привычку, момент, когда он тебя поддержал, "
+                     "и то, что вы редко говорите вслух. Остальное я возьму на себя: соберу письмо и открытку.\n\n"
+                     "Можно не сегодня, кнопка будет здесь."),
+        "followup_btn": "✉️ Написать письмо про своего человека", "followup_occ": None,
     },
 }
 
@@ -120,16 +133,58 @@ def open_order(chat_id, user, key):
     return True
 
 
-def deliver(chat_id, order):
-    """Отправляет файл после подтверждённой оплаты. Вызывается из fulfill_order."""
-    p = of_order(order)
+def followup_enabled():
+    return os.getenv("PDF_FOLLOWUP", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def followup_due(chat_id, key):
+    """Мягкое сообщение «теперь напиши письмо» шлём один раз на человека и товар."""
+    if not followup_enabled() or not PRODUCTS[key].get("followup"):
+        return False
+    profile = B.get_client(chat_id)
+    return not (profile or {}).get("pdf_followup", {}).get(key)
+
+
+def followup_markup(key):
+    """В режиме «только приложение» кнопка открывает Mini App сразу с поводом, иначе ведёт в каталог поводов."""
+    p = PRODUCTS[key]
+    if B.app_only():
+        return B.app_markup(p["followup_btn"], occ=p.get("followup_occ"))
     kb = types.InlineKeyboardMarkup(row_width=1)
-    kb.add(types.InlineKeyboardButton(p["next_label"], callback_data=p["next_cb"]))
+    kb.add(types.InlineKeyboardButton(p["followup_btn"], callback_data=p["next_cb"]))
+    return kb
+
+
+def send_followup(chat_id, key):
+    """Одно тёплое сообщение после файла: без давления, без таймеров. Запоминаем в профиле, чтобы не повторять."""
+    try:
+        B.bot.send_message(chat_id, PRODUCTS[key]["followup"], reply_markup=followup_markup(key))
+        profile = B.get_client(chat_id)
+        if profile is not None:
+            profile.setdefault("pdf_followup", {})[key] = B.now_msk().isoformat()
+            B.write_json(B.client_path(chat_id), profile)
+        return True
+    except Exception as exc:  # сообщение необязательное: файл уже у человека
+        B.log.error("pdf followup %s: %s", chat_id, exc)
+        return False
+
+
+def deliver(chat_id, order):
+    """Отправляет файл после подтверждённой оплаты (или сразу, если подарок). Вызывается из fulfill_order."""
+    p = of_order(order)
+    follow = followup_due(chat_id, p["key"])
+    kb = None
+    if not follow:   # если следом придёт сообщение с кнопкой, у файла кнопку не дублируем
+        kb = types.InlineKeyboardMarkup(row_width=1)
+        kb.add(types.InlineKeyboardButton(p["next_label"], callback_data=p["next_cb"]))
     sent = False
     try:
         with open(file_path(p["key"]), "rb") as f:
-            B.bot.send_document(chat_id, f, caption=p["caption"], reply_markup=kb)
+            B.bot.send_document(chat_id, f, caption=(p.get("caption_free") if order.get("free") else None) or p["caption"],
+                                reply_markup=kb)
         sent = True
+        if follow:
+            send_followup(chat_id, p["key"])
     except OSError as exc:
         B.log.error("pdf not sent %s: %s", order["order_id"], exc)
         B.bot.send_message(chat_id, "Оплата прошла, но файл не отправился. Напиши в «❓ Помощь», пришлю вручную. "

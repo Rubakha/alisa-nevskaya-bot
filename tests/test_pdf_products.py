@@ -166,4 +166,60 @@ assert not any(n == "send_invoice" for n, *_ in SENT)
 assert any(n == "send_document" for n, *_ in SENT), "файл не отправлен"
 os.environ.pop("PDF_QUESTIONS_PRICE_RUB")
 
+# 6. мягкое сообщение после выдачи: один раз на человека и товар, кнопка открывает приложение, без «!» и давления
+os.environ["APP_ONLY"] = "1"
+fu_user = pytypes.SimpleNamespace(id=610, first_name="Вера", username="vera", last_name=None, language_code="ru")
+B.upsert_client(fu_user)
+os.environ["PDF_QUESTIONS_PRICE_RUB"] = "0"
+for key, occ in [("pdf_questions", "family"), ("pdf_letters", None)]:
+    for p in P.PRODUCTS.values():
+        assert "!" not in p["followup"] and "!" not in p["followup_btn"], "восклицательные знаки не нужны"
+    SENT.clear()
+    if key == "pdf_questions":
+        assert P.open_order(610, fu_user, key) is True
+    else:
+        o = {"order_id": B.new_order_id(), "chat_id": 610, "name": "Вера", "pain": key, "product": key,
+             "price_rub": 249, "status": "pending", "created_at": B.now_msk().isoformat()}
+        B.save_order(o)
+        B.fulfill_order(610, o["order_id"], "ch-fu", None)
+    docs = [i for i, s in enumerate(SENT) if s[0] == "send_document"]
+    msgs = [i for i, s in enumerate(SENT) if s[0] == "send_message" and s[1][0] == 610 and "Можно не сегодня" in str(s[1][1])]
+    assert len(docs) == 1 and len(msgs) == 1 and msgs[0] > docs[0], SENT
+    assert SENT[docs[0]][2].get("reply_markup") is None, "кнопка не дублируется у файла"
+    btn = SENT[msgs[0]][2]["reply_markup"].keyboard[0][0]
+    assert btn.web_app is not None and "Написать письмо" in btn.text, btn
+    assert ("occ=family" in btn.web_app.url) == (occ == "family"), btn.web_app.url
+    assert B.get_client(610)["pdf_followup"][key], "метка в профиле"
+    # повторная выдача (повторный переход по ссылке): файл есть, второго сообщения нет, кнопка у файла прежняя
+    SENT.clear()
+    if key == "pdf_questions":
+        P.open_order(610, fu_user, key)
+        assert len([s for s in SENT if s[0] == "send_document"]) == 1
+        assert not [s for s in SENT if s[0] == "send_message" and "Можно не сегодня" in str(s[1])], SENT
+        assert SENT[[s[0] for s in SENT].index("send_document")][2].get("reply_markup") is not None
+
+# 6b. режим без приложения: кнопка ведёт в каталог; выключатель PDF_FOLLOWUP=0
+os.environ["APP_ONLY"] = "0"
+assert P.followup_markup("pdf_letters").keyboard[0][0].callback_data == "occ:catalog"
+os.environ["APP_ONLY"] = "1"
+os.environ["PDF_FOLLOWUP"] = "0"
+fu2 = pytypes.SimpleNamespace(id=611, first_name="Лена", username="lena", last_name=None, language_code="ru")
+B.upsert_client(fu2)
+SENT.clear()
+P.open_order(611, fu2, "pdf_questions")
+assert not [s for s in SENT if s[0] == "send_message" and "Можно не сегодня" in str(s[1])]
+assert "pdf_followup" not in B.get_client(611)
+os.environ.pop("PDF_FOLLOWUP")
+os.environ.pop("PDF_QUESTIONS_PRICE_RUB")
+
+# 6c. подарок не называется оплатой
+fu3 = pytypes.SimpleNamespace(id=612, first_name="Ира", username="ira", last_name=None, language_code="ru")
+B.upsert_client(fu3)
+os.environ["PDF_QUESTIONS_PRICE_RUB"] = "0"
+SENT.clear()
+P.open_order(612, fu3, "pdf_questions")
+cap = [s for s in SENT if s[0] == "send_document"][0][2]["caption"]
+assert "Оплата" not in cap and "подарок" in cap, cap
+os.environ.pop("PDF_QUESTIONS_PRICE_RUB")
+
 print("OK: pdf products")
