@@ -29,6 +29,7 @@ from types import SimpleNamespace
 from flask import Response, request
 
 import miniapp_share
+import web_auth
 
 B = None
 APP = None
@@ -154,6 +155,9 @@ def sig_ok(order_id):
 
 # ── авторизация и обёртка ручек ───────────────────────────────────
 def current_user(required=True):
+    user = web_auth.user_from_request(B, request)   # сайт без Telegram: Bearer-токен после входа по e-mail
+    if user:
+        return user
     user = miniapp_share.init_data_user(request.headers.get("X-Telegram-Init-Data", ""), B.TG_BOT_TOKEN)
     if not user and required:
         raise err("unauthorized", "Открой приложение из Telegram — так я пойму, кто ты.", 401)
@@ -744,6 +748,7 @@ def register(app, bot_module):
     routes()
     import miniapp_api_v2   # v2: поддержка, подписки, набор, PDF, голос, группы (флаг MINIAPP_API_V2)
     miniapp_api_v2.register(sys.modules[__name__], B)
+    web_auth.register(sys.modules[__name__], B)
     B.log.info("miniapp api v1: включён, origins=%s", ",".join(sorted(origins())))
 
 
@@ -755,7 +760,7 @@ def cors(app):
             if origin in origins():
                 resp.headers["Access-Control-Allow-Origin"] = origin
                 resp.headers["Vary"] = "Origin"
-                resp.headers["Access-Control-Allow-Headers"] = "X-Telegram-Init-Data, Content-Type"
+                resp.headers["Access-Control-Allow-Headers"] = "X-Telegram-Init-Data, Authorization, Content-Type"
                 resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
                 resp.headers["Access-Control-Max-Age"] = "600"
         return resp
