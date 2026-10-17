@@ -317,7 +317,8 @@ def on_paid(B, order):
         return False
     base = os.getenv("MINIAPP_RETURN_URL", "https://alisa-letters.pages.dev").rstrip("/")
     link = f"{base}/pay/return/?paid={order['order_id']}"
-    text = NL.join(["Оплата прошла. Твоё письмо готово.", "", "Открой его: " + link, "",
+    extra = ["Два PDF из набора «Для мамы» скачиваются на той же странице.", ""] if order.get("bundle") else []
+    text = NL.join(["Оплата прошла. Твоё письмо готово.", "", "Открой его: " + link, ""] + extra + [
                     "Если сайт попросит войти, введи почту и код из письма.", "",
                     "Алиса Невская, цифровой персонаж на основе ИИ"])
     return send_mail(B, email, "Твоё письмо готово", text)

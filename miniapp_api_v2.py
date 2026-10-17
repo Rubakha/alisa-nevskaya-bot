@@ -233,6 +233,11 @@ def routes_purchases():
         order = create_purchase(user, "pack", data)
         return A.checkout(user, order, data)
 
+    @A.endpoint("/momset", auth=False)
+    def momset_info():
+        """Набор «Для мамы»: состав, цена и честная выгода. MOM_SET выключен: enabled=false, сайт блок не показывает."""
+        return B.PDFP.mom_info()
+
     @A.endpoint("/doc", auth=False)
     def doc_info():
         D = B.OCC.DOC
@@ -346,7 +351,7 @@ def routes_voice():
     def voice_toggle(order_id, user):
         """До оплаты: включить или убрать озвучку (+100 ₽ к сумме)."""
         d = A.own_draft(order_id, user)
-        if d.get("synthetic") or d.get("group"):
+        if d.get("synthetic") or d.get("group") or d.get("bundle"):
             raise A.err("voice_not_allowed", "Для этого письма озвучку до оплаты добавить нельзя.", 409)
         order = A.real_order(d)
         if order and order.get("status") == "done":
