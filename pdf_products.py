@@ -54,7 +54,7 @@ def get(key):
 def price(key):
     p = PRODUCTS[key]
     try:
-        return max(1, int(os.getenv(p["price_env"], str(p["price"]))))
+        return max(0, int(os.getenv(p["price_env"], str(p["price"]))))  # 0 = бесплатно: файл сразу, без оплаты
     except ValueError:
         return p["price"]
 
@@ -84,7 +84,7 @@ def catalog_buttons(kb):
     if not enabled():
         return
     for key, p in PRODUCTS.items():
-        kb.add(types.InlineKeyboardButton(f"{p['icon']} {p['title']} · {price(key)}₽", callback_data=f"pdfp:{key}"))
+        kb.add(types.InlineKeyboardButton(f"{p['icon']} {p['title']} · {str(price(key)) + '₽' if price(key) else 'бесплатно'}", callback_data=f"pdfp:{key}"))
 
 
 def open_order(chat_id, user, key):
@@ -92,6 +92,11 @@ def open_order(chat_id, user, key):
     if not enabled() or key not in PRODUCTS:
         return False
     p = PRODUCTS[key]
+    if price(key) == 0:  # подарок: без заказа и оплаты, файл сразу
+        B.upsert_client(user)
+        B.bot.send_message(chat_id, f"{p['icon']} <b>{p['title']}</b>\n\n{p['pitch']}", parse_mode="HTML")
+        deliver(chat_id, {"order_id": B.new_order_id(), "product": key, "price_rub": 0, "free": True})
+        return True
     pending = B.pending_orders(chat_id)
     if pending and pending[0].get("product") == key:  # повторный переход по ссылке: тот же заказ
         B.send_order_invoice(chat_id, pending[0])
@@ -131,7 +136,7 @@ def deliver(chat_id, order):
                                     f"Номер: <code>{order['order_id']}</code>", parse_mode="HTML")
     try:
         if B.ADMIN_ID:
-            note = (f"{'🧪 ТЕСТ, 0 ₽. ' if order.get('is_test') else '💰 '}PDF «{p['short']}»: "
+            note = (f"{'🧪 ТЕСТ, 0 ₽. ' if order.get('is_test') else ('🎁 бесплатно. ' if order.get('free') else '💰 ')}PDF «{p['short']}»: "
                     f"{order.get('price_rub', 0)} ₽ · <code>{order['order_id']}</code>"
                     + ("" if sent else " · ⚠️ файл не отправился"))
             B.safe_send(B.ADMIN_ID, note)
