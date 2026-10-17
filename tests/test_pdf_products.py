@@ -154,4 +154,16 @@ B.fulfill_order(502, o3["order_id"], "ch-x", None)
 assert any("файл не отправился" in str(s[1]) for s in SENT), SENT
 P.PRODUCTS["pdf_letters"]["file"] = real
 
+# подарок: цена 0 — файл сразу, без заказа и окна оплаты
+os.environ["PDF_QUESTIONS_PRICE_RUB"] = "0"
+assert P.price("pdf_questions") == 0
+assert any("20 вопросов" in t and "бесплатно" in t for t in catalog_texts())
+before = len(pdf_orders())
+SENT.clear()
+assert P.open_order(503, user, "pdf_questions") is True
+assert len(pdf_orders()) == before, "бесплатный подарок не создаёт заказ"
+assert not any(n == "send_invoice" for n, *_ in SENT)
+assert any(n == "send_document" for n, *_ in SENT), "файл не отправлен"
+os.environ.pop("PDF_QUESTIONS_PRICE_RUB")
+
 print("OK: pdf products")
